@@ -15,6 +15,15 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
+APP_ROOT = Path(__file__).resolve().parent
+RUNTIME_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", "/tmp/castora" if os.environ.get("VERCEL") else APP_ROOT))
+PODCAST_ROOT = RUNTIME_ROOT / "podcasts"
+PODCAST_AUDIO_DIR = PODCAST_ROOT / "audio"
+PODCAST_IMAGES_DIR = PODCAST_ROOT / "images"
+PODCAST_RECORDINGS_DIR = PODCAST_ROOT / "recordings"
+for directory in (RUNTIME_ROOT / "databases", RUNTIME_ROOT / "browsers", PODCAST_AUDIO_DIR, PODCAST_IMAGES_DIR, PODCAST_RECORDINGS_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+
 CLIENT_BUILD_PATH = os.environ.get(
     "CLIENT_BUILD_PATH",
     "../web/build",
@@ -24,11 +33,6 @@ CLIENT_BUILD_PATH = os.environ.get(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting up application...")
-    os.makedirs("databases", exist_ok=True)
-    os.makedirs("browsers", exist_ok=True)
-    os.makedirs("podcasts/audio", exist_ok=True)
-    os.makedirs("podcasts/images", exist_ok=True)
-    os.makedirs("podcasts/recordings", exist_ok=True)
     await init_databases()
     if not os.path.exists(CLIENT_BUILD_PATH):
         print(f"WARNING: React client build path not found: {CLIENT_BUILD_PATH}")
@@ -59,7 +63,7 @@ app.include_router(async_podcast_agent_router.router, prefix="/api/podcast-agent
 
 @app.get("/stream-audio/{filename}")
 async def stream_audio(filename: str, request: Request):
-    audio_path = os.path.join("podcasts/audio", filename)
+    audio_path = PODCAST_AUDIO_DIR / filename
     if not os.path.exists(audio_path):
         return Response(status_code=404, content="Audio file not found")
     file_size = os.path.getsize(audio_path)
@@ -101,7 +105,7 @@ async def stream_audio(filename: str, request: Request):
 
 @app.get("/stream-recording/{session_id}/{filename}")
 async def stream_recording(session_id: str, filename: str, request: Request):
-    recording_path = os.path.join("podcasts/recordings", session_id, filename)
+    recording_path = PODCAST_RECORDINGS_DIR / session_id / filename
     if not os.path.exists(recording_path):
         return Response(status_code=404, content="Recording video not found")
     file_size = os.path.getsize(recording_path)
@@ -141,9 +145,9 @@ async def stream_recording(session_id: str, filename: str, request: Request):
     return StreamingResponse(file_streamer(), status_code=status_code, headers=headers)
 
 
-app.mount("/audio", StaticFiles(directory="podcasts/audio"), name="audio")
+app.mount("/audio", StaticFiles(directory=str(PODCAST_AUDIO_DIR)), name="audio")
 app.mount("/server_static", StaticFiles(directory="static"), name="server_static")
-app.mount("/podcast_img", StaticFiles(directory="podcasts/images"), name="podcast_img")
+app.mount("/podcast_img", StaticFiles(directory=str(PODCAST_IMAGES_DIR)), name="podcast_img")
 if os.path.exists(os.path.join(CLIENT_BUILD_PATH, "static")):
     app.mount("/static", StaticFiles(directory=os.path.join(CLIENT_BUILD_PATH, "static")), name="react_static")
 

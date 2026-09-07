@@ -4,7 +4,12 @@ from dotenv import load_dotenv
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
-APP_ROOT = Path(__file__).resolve().parent.parent
+APP_ROOT = Path(
+    os.environ.get(
+        "CASTORA_RUNTIME_DIR",
+        "/tmp/castora" if os.environ.get("VERCEL") else Path(__file__).resolve().parent.parent,
+    )
+)
 DEFAULT_DB_PATHS = {
     "sources_db": "databases/sources.db",
     "tracking_db": "databases/feed_tracking.db",
