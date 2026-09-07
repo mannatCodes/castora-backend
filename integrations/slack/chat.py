@@ -17,7 +17,7 @@ load_dotenv()
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 # local url works but banner images won't work in slack unless it's https with proper domain
 # you can use ngrok to port forward local url to https and replace this local url with ngrok url
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:7000")
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://castora-backend-3.onrender.com")
 executor = ThreadPoolExecutor(max_workers=10)
 active_sessions: Dict[str, Dict] = {}
 DB_PATH = get_slack_sessions_db_path()
