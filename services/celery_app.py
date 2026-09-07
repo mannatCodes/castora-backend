@@ -5,24 +5,36 @@ import time
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
-REDIS_DB = int(os.environ.get("REDIS_DB", 0))
+REDIS_URL = os.environ.get("REDIS_URL")
+if REDIS_URL:
+    redis_url = urlparse(REDIS_URL)
+    REDIS_HOST = redis_url.hostname or "localhost"
+    REDIS_PORT = redis_url.port or 6379
+    REDIS_DB = int((redis_url.path or "/0").lstrip("/") or 0)
+else:
+    REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+    REDIS_DB = int(os.environ.get("REDIS_DB", 0))
 REDIS_LOCK_EXP_TIME_SEC = 60 * 10
 REDIS_LOCK_INFO_EXP_TIME_SEC = 60 * 15
 STALE_LOCK_THRESHOLD_SEC = 60 * 15
 
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB + 1)
+redis_client = redis.Redis.from_url(REDIS_URL, db=REDIS_DB + 1) if REDIS_URL else redis.Redis(
+    host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB + 1
+)
+
+CELERY_REDIS_URL = REDIS_URL or f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
 
 app = Celery(
     "castora_tasks",
-    broker=f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}",
-    backend=f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}",
+    broker=CELERY_REDIS_URL,
+    backend=CELERY_REDIS_URL,
     include=["services.celery_tasks"],
 )
 

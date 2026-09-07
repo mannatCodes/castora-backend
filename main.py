@@ -61,6 +61,12 @@ app.include_router(podcast_config_router.router, prefix="/api/podcast-configs", 
 app.include_router(async_podcast_agent_router.router, prefix="/api/podcast-agent", tags=["podcast-agent"])
 
 
+@app.get("/healthz", include_in_schema=False)
+async def health_check():
+    """Lightweight Render health check that does not depend on external services."""
+    return {"status": "ok"}
+
+
 @app.get("/stream-audio/{filename}")
 async def stream_audio(filename: str, request: Request):
     audio_path = PODCAST_AUDIO_DIR / filename
