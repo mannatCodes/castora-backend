@@ -28,7 +28,7 @@ for directory in (RUNTIME_ROOT / "databases", RUNTIME_ROOT / "browsers", PODCAST
 
 CLIENT_BUILD_PATH = os.environ.get(
     "CLIENT_BUILD_PATH",
-    "../web/build",
+    str(APP_ROOT.parent / "frontend" / "build"),
 )
 
 scheduler_process = None
