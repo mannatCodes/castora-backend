@@ -385,7 +385,9 @@ def _extract_script_entries(script_data: Dict[str, Any]) -> List[Dict[str, Any]]
 def _configured_tts_engines(preferred_engine: str) -> List[str]:
     preferred_engine = (preferred_engine or "kokoro").lower()
     engines = [preferred_engine]
-    fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "1").strip().lower() in {"1", "true", "yes", "on"}
+    # Do not automatically fall back to Kokoro in a deployed web process: its
+    # model load can exhaust the service and restart the Studio mid-workflow.
+    fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
     if fallback_enabled:
         engines.extend(e for e in ["kokoro", "openai", "elevenlabs"] if e != preferred_engine)
 
@@ -446,7 +448,10 @@ def audio_generate_agent_run(agent: Agent) -> str:
             print(f"Generating podcast audio using {tts_engine} TTS engine in {language_name} language")
             full_audio_path = None
             use_real_tts = _should_use_real_tts()
-            allow_placeholder = os.environ.get("PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO", "0").strip().lower() in {"1", "true", "yes"}
+            # Keep the Studio completable when a hosted TTS key is absent or
+            # temporarily unavailable. A configured provider is still used
+            # first, so normal deployments receive real speech.
+            allow_placeholder = os.environ.get("PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO", "1").strip().lower() in {"1", "true", "yes"}
             min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
             print(f"Script has {len(script_entries)} dialog entries; requiring at least {min_duration:.1f}s of generated audio")
             if use_real_tts:

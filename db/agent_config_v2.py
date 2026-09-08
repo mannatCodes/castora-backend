@@ -180,10 +180,10 @@ INITIAL_SESSION_STATE = {
     "finished": False,
     "show_banner_for_confirmation": False,
     "show_audio_for_confirmation": False,
-    # Render's small web instance is not suitable for loading Kokoro's local
-    # model. Production selects a hosted engine through this environment
-    # variable, while local development can continue using Kokoro by default.
-    "tts_engine": os.environ.get("PODCAST_STUDIO_DEFAULT_TTS_ENGINE", "kokoro"),
+    # The Render web instance cannot reliably load Kokoro's local model.
+    # Deployments use ElevenLabs when configured, otherwise the audio agent
+    # falls back to a short local placeholder so the workflow can finish.
+    "tts_engine": os.environ.get("PODCAST_STUDIO_DEFAULT_TTS_ENGINE", "elevenlabs"),
 }
 
 STORAGE = SqliteStorage(
