@@ -8,6 +8,14 @@ from concurrent.futures import ThreadPoolExecutor
 from services.db_service import get_db_path
 
 
+DEFAULT_RSS_SOURCES = (
+    ("The Hindu", "https://www.thehindu.com/", "https://www.thehindu.com/feeder/default.rss", "rss"),
+    ("The Times Of India", "https://timesofindia.indiatimes.com/rss.cms", "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms", "main"),
+    ("The Indian Express", "https://indianexpress.com/rss/", "https://indianexpress.com/section/india/feed/", "main"),
+    ("NDTV", "https://www.ndtv.com/rss", "https://feeds.feedburner.com/ndtvnews-latest", "main"),
+)
+
+
 @contextmanager
 def db_connection(db_path):
     conn = sqlite3.connect(db_path)
@@ -71,6 +79,27 @@ def init_sources_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_feeds_is_active ON source_feeds(is_active)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_categories_source_id ON source_categories(source_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_categories_category_id ON source_categories(category_id)")
+        if os.environ.get("CASTORA_SEED_DEFAULT_SOURCES", "true").lower() not in {"0", "false", "no"}:
+            for name, source_url, feed_url, feed_type in DEFAULT_RSS_SOURCES:
+                cursor.execute("SELECT id FROM sources WHERE name = ?", (name,))
+                source = cursor.fetchone()
+                if source is None:
+                    cursor.execute(
+                        """
+                        INSERT INTO sources (name, description, url, is_active)
+                        VALUES (?, '', ?, 1)
+                        """,
+                        (name, source_url),
+                    )
+                    cursor.execute("SELECT id FROM sources WHERE name = ?", (name,))
+                    source = cursor.fetchone()
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO source_feeds (source_id, feed_url, feed_type, is_active)
+                    VALUES (?, ?, ?, 1)
+                    """,
+                    (source["id"], feed_url, feed_type),
+                )
         conn.commit()
 
     elapsed = time.time() - start_time

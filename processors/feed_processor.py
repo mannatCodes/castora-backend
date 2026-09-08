@@ -271,6 +271,10 @@ def refresh_articles_from_feeds():
     stats = fetch_and_process_feeds(tracking_db_path=tracking_db_path)
     print_stats(stats)
 
+    if stats["total_feeds"] == 0:
+        print("WARNING: No active RSS feeds are configured; skipping article refresh.")
+        return 0
+
     if stats["total_feeds"] > 0 and stats["processed_feeds"] == 0 and stats["failed_feeds"] == stats["total_feeds"]:
         print("ERROR: all active feeds failed; no articles were refreshed.")
         return 1

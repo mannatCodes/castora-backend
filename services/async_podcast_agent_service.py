@@ -105,14 +105,19 @@ class PodcastAgentService:
                 "process_type": None,
                 "task_id": None,
             }
-        if stage in {"source_selection", "banner", "audio", "complete", "error"}:
+        if stage in {"source_selection", "banner_generation", "banner", "audio_generation", "audio", "complete", "error"}:
+            processing_stages = {"banner_generation", "audio_generation"}
+            default_messages = {
+                "banner_generation": "Your podcast banner is being prepared.",
+                "audio_generation": "Your podcast audio is being generated.",
+            }
             return {
                 "session_id": session_id,
-                "response": session_state.get("response", ""),
+                "response": session_state.get("response") or default_messages.get(stage, ""),
                 "stage": stage,
                 "session_state": json.dumps(session_state),
-                "is_processing": False,
-                "process_type": None,
+                "is_processing": stage in processing_stages,
+                "process_type": "chat" if stage in processing_stages else None,
                 "task_id": None,
             }
         return None
@@ -376,15 +381,19 @@ class PodcastAgentService:
 
     async def get_session_state(self, session_id):
         try:
+            # Direct Studio stages are stored in internal_sessions.db. They do
+            # not necessarily create a matching Agno chat-history row, so use
+            # the workflow state before checking agent_sessions.db.
+            ready_response = self._ready_state_response(session_id)
+            if ready_response:
+                return ready_response
+
             db_path = get_agent_session_db_path()
             async with aiosqlite.connect(db_path) as conn:
                 conn.row_factory = lambda cursor, row: {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
                 async with conn.execute("SELECT session_data FROM podcast_sessions WHERE session_id = ?", (session_id,)) as cursor:
                     row = await cursor.fetchone()
             if not row:
-                ready_response = self._ready_state_response(session_id)
-                if ready_response:
-                    return ready_response
                 return {
                     "session_id": session_id,
                     "response": "No session data found.",

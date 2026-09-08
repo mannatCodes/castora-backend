@@ -142,9 +142,13 @@ class PodcastService:
                     sources = []
             podcast["sources"] = sources
             
+            # SQLite returns NULL for new podcasts until one or more banners
+            # are uploaded.  ``json.loads(None)`` raises TypeError, which used
+            # to make a successful create look like a 500 response.
+            raw_banner_images = podcast.get("banner_images") or "[]"
             try:
-                banner_images = json.loads(podcast.get("banner_images", "[]"))
-            except json.JSONDecodeError:
+                banner_images = json.loads(raw_banner_images)
+            except (TypeError, json.JSONDecodeError):
                 banner_images = []
             podcast["banner_images"] = banner_images
             

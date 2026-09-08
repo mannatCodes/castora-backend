@@ -152,6 +152,11 @@ def execute_task(task_id, command):
 
         output = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}" if stderr else stdout
 
+        if status == "failed" and output:
+            # Render captures this parent-process output. Without it, a failed
+            # scheduled command only reports an unhelpful numeric exit code.
+            print(f"TASK {task_id} OUTPUT:\n{output}")
+
         print(f"STEP 4: updating DB execution status")
 
         update_task_execution(tasks_db_path, execution_id, status, error_message, output)

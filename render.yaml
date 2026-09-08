@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: castora-backend-3
+    name: castora-backend-1
     runtime: python
     plan: 0.5c-512mb
     buildCommand: pip install -r requirements.txt
@@ -13,6 +13,11 @@ services:
     envVars:
       - key: CASTORA_RUNTIME_DIR
         value: /var/data
+      # Seed the initial RSS sources when a new persistent disk is attached.
+      # Without sources the feed processor has nothing to ingest, leaving the
+      # Articles page empty.
+      - key: CASTORA_SEED_DEFAULT_SOURCES
+        value: "true"
       - key: REDIS_URL
         fromService:
           name: castora-queue
