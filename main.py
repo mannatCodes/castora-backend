@@ -4,6 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 import uvicorn
 import os
+import subprocess
+import sys
 import aiofiles
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -29,16 +31,36 @@ CLIENT_BUILD_PATH = os.environ.get(
     "../web/build",
 )
 
+scheduler_process = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global scheduler_process
     print("Starting up application...")
     await init_databases()
+    if os.environ.get("SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}:
+        # Keep scheduled feed ingestion alive whenever the API is running.
+        # Running it as a child process preserves the scheduler's signal-based
+        # shutdown handling and guarantees it uses this application's Python env.
+        scheduler_process = subprocess.Popen(
+            [sys.executable, "-m", "scheduler"],
+            cwd=str(APP_ROOT),
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        )
+        print(f"Started task scheduler (PID {scheduler_process.pid})")
     if not os.path.exists(CLIENT_BUILD_PATH):
         print(f"WARNING: React client build path not found: {CLIENT_BUILD_PATH}")
     print("Application startup complete!")
     yield
     print("Shutting down application...")
+    if scheduler_process and scheduler_process.poll() is None:
+        scheduler_process.terminate()
+        try:
+            scheduler_process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            scheduler_process.kill()
+            scheduler_process.wait()
     print("Shutdown complete")
 
 

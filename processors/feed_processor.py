@@ -232,7 +232,13 @@ def print_stats(stats):
     print(f"New entries      : {stats['new_entries']}")
 
 
-def latest_article_is_today(tracking_db_path=None):
+def latest_article_is_recent(tracking_db_path=None, max_age_hours=30):
+    """Return freshness based on when the app crawled an article, not its publish date.
+
+    News feeds can legitimately publish no articles after midnight. A 30-hour
+    window avoids a false stale alert overnight while still detecting a missed
+    daily refresh.
+    """
     if tracking_db_path is None:
         tracking_db_path = get_tracking_db_path()
 
@@ -256,7 +262,8 @@ def latest_article_is_today(tracking_db_path=None):
         latest = latest.replace(tzinfo=now.tzinfo)
     else:
         latest = latest.astimezone(now.tzinfo)
-    return latest.date() == now.date(), latest_crawled_date
+    age_seconds = (now - latest).total_seconds()
+    return 0 <= age_seconds <= max_age_hours * 3600, latest_crawled_date
 
 
 def refresh_articles_from_feeds():
@@ -283,9 +290,9 @@ def refresh_articles_from_feeds():
         if crawl_stats["success_count"] == 0:
             print("WARNING: feed entries were found, but this run did not crawl any article URLs successfully.")
 
-    is_fresh, latest_crawled_date = latest_article_is_today(tracking_db_path)
+    is_fresh, latest_crawled_date = latest_article_is_recent(tracking_db_path)
     if not is_fresh:
-        print(f"ERROR: latest crawled article is not from today. Latest crawled: {latest_crawled_date}")
+        print(f"ERROR: latest crawled article is older than 30 hours. Latest crawled: {latest_crawled_date}")
         return 1
 
     print(f"Freshness check passed. Latest crawled article: {latest_crawled_date}")

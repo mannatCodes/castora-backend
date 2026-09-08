@@ -2,6 +2,7 @@ import os
 import time
 import signal
 import subprocess
+import sys
 from datetime import datetime
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -19,6 +20,15 @@ from db.tasks import (
 running = True
 MAX_WORKERS = 5
 DEFAULT_TASK_TIMEOUT = 3600
+
+
+def _command_for_current_environment(command: str) -> str:
+    """Run stored `python -m ...` tasks with the same interpreter as the API."""
+    prefix = "python -m "
+    if command.strip().startswith(prefix):
+        module = command.strip()[len(prefix):]
+        return f'"{sys.executable}" -m {module}'
+    return command
 
 
 def cleanup_stuck_tasks():
@@ -107,7 +117,7 @@ def execute_task(task_id, command):
 
     try:
         process = subprocess.Popen(
-            command,
+            _command_for_current_environment(command),
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

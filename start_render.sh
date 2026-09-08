@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Render starts one process per web service. Run the API and the local
-# background processes together so all three share the service's persistent
-# SQLite database and generated podcast files.
+# Render starts one process per web service. The API starts the scheduler as a
+# managed child process, so all scheduled work shares its persistent SQLite
+# database and generated podcast files.
 children=()
 
 stop_children() {
@@ -16,9 +16,6 @@ stop_children() {
   exit "$status"
 }
 trap stop_children EXIT INT TERM
-
-python -m scheduler &
-children+=("$!")
 
 if [[ -n "${REDIS_URL:-}" || ( -n "${REDIS_HOST:-}" && "${REDIS_HOST:-}" != "localhost" ) ]]; then
   python -m celery_worker &
