@@ -420,11 +420,20 @@ def audio_generate_agent_run(agent: Agent) -> str:
     session_id = agent.session_id
     session = SessionService.get_session(session_id)
     session_state = session["state"]
+
+    def fail_audio_generation(message: str) -> str:
+        """Do not present stale or placeholder audio as a generated podcast."""
+        session_state.pop("audio_url", None)
+        session_state["show_audio_for_confirmation"] = False
+        session_state["audio_error"] = message
+        SessionService.save_session(session_id, session_state)
+        print(message)
+        return message
+
     script_data = session_state.get("generated_script", {})
     if not script_data or (isinstance(script_data, dict) and not script_data.get("sections")):
         error_msg = "Cannot generate audio: No podcast script data found. Please generate a script first."
-        print(error_msg)
-        return error_msg
+        return fail_audio_generation(error_msg)
     if isinstance(script_data, dict):
         podcast_title = script_data.get("title", "Your Podcast")
     else:
@@ -438,8 +447,7 @@ def audio_generate_agent_run(agent: Agent) -> str:
             script_entries = _extract_script_entries(script_data)
             if not script_entries:
                 error_msg = "Cannot generate audio: No dialog found in the script."
-                print(error_msg)
-                return error_msg
+                return fail_audio_generation(error_msg)
 
             selected_language = session_state.get("selected_language", {"code": "en", "name": "English"})
             language_code = selected_language.get("code", "en")
@@ -448,22 +456,13 @@ def audio_generate_agent_run(agent: Agent) -> str:
             print(f"Generating podcast audio using {tts_engine} TTS engine in {language_name} language")
             full_audio_path = None
             use_real_tts = _should_use_real_tts()
-            # Keep the Studio completable when a hosted TTS key is absent or
-            # temporarily unavailable. A configured provider is still used
-            # first, so normal deployments receive real speech.
-            allow_placeholder = os.environ.get("PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO", "1").strip().lower() in {"1", "true", "yes"}
             min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
             print(f"Script has {len(script_entries)} dialog entries; requiring at least {min_duration:.1f}s of generated audio")
             if use_real_tts:
                 engines_to_try = _configured_tts_engines(tts_engine)
                 if not engines_to_try:
-                    if allow_placeholder:
-                        print("No hosted TTS engine is configured; creating placeholder audio.")
-                        full_audio_path = _create_placeholder_audio(audio_path)
-                    else:
-                        error_msg = "Failed to generate podcast audio: no configured TTS engine is available."
-                        print(error_msg)
-                        return error_msg
+                    error_msg = "Failed to generate podcast audio: no configured TTS engine is available. Configure a working TTS provider and try again."
+                    return fail_audio_generation(error_msg)
                 for engine in engines_to_try:
                     print(f"Trying TTS engine: {engine}")
                     full_audio_path = generate_podcast_audio(
@@ -485,35 +484,28 @@ def audio_generate_agent_run(agent: Agent) -> str:
                         break
                     else:
                         print(f"TTS engine {engine} failed, trying next...")
-                if not full_audio_path and allow_placeholder:
-                    print("Real TTS generation failed; creating placeholder audio because fallback is enabled.")
-                    full_audio_path = _create_placeholder_audio(audio_path)
-                elif not full_audio_path:
-                    error_msg = "Failed to generate podcast audio with any TTS engine. Real TTS is enabled by default; check your API keys or dependencies."
-                    print(error_msg)
-                    return error_msg
-            else:
-                print("Real TTS is disabled. Creating placeholder audio.")
-                full_audio_path = _create_placeholder_audio(audio_path)
                 if not full_audio_path:
-                    error_msg = "Failed to generate placeholder podcast audio."
-                    print(error_msg)
-                    return error_msg
+                    error_msg = "Failed to generate podcast audio with any TTS engine. Real TTS is enabled by default; check your API keys or dependencies."
+                    return fail_audio_generation(error_msg)
+            else:
+                error_msg = "Failed to generate podcast audio: real TTS is disabled. Enable a TTS provider to create spoken audio."
+                return fail_audio_generation(error_msg)
 
             audio_url = f"{os.path.basename(full_audio_path)}"
             # Use the actual engine that succeeded (might have changed from original via fallback)
             actual_engine = session_state.get("tts_engine", tts_engine)
             session_state["audio_url"] = audio_url
             session_state["show_audio_for_confirmation"] = True
+            session_state.pop("audio_error", None)
             session_state["stage"] = "audio"
             SessionService.save_session(session_id, session_state)
             print(f"Successfully generated podcast audio: {full_audio_path}")
             return f"I've generated the audio for your '{podcast_title}' podcast using {actual_engine.capitalize()} voices in {language_name}. You can listen to it in the player below. What do you think? If it sounds good, click 'Sounds Great!' to complete your podcast."
         else:
             error_msg = "Cannot generate audio: Script is not in the expected format."
-            print(error_msg)
-            return error_msg
+            return fail_audio_generation(error_msg)
     except Exception as e:
         error_msg = f"Error generating podcast audio: {str(e)}"
-        print(error_msg)
-        return f"I encountered an error while generating the podcast audio: {str(e)}. Please try again or let me know if you'd like to proceed without audio."
+        return fail_audio_generation(
+            f"I encountered an error while generating the podcast audio: {str(e)}. Please try again after checking the TTS provider."
+        )

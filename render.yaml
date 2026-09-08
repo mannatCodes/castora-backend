@@ -36,7 +36,7 @@ services:
       - key: PODCAST_STUDIO_TTS_FALLBACKS
         value: "false"
       - key: PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO
-        value: "true"
+        value: "false"
       - key: PODCAST_STUDIO_USE_AI_SCRIPT
         value: "true"
 

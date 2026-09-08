@@ -82,6 +82,7 @@ class AudioGenerationTests(unittest.TestCase):
                 os.environ,
                 {
                     "PODCAST_STUDIO_USE_REAL_TTS": "1",
+                    "PODCAST_STUDIO_TTS_FALLBACKS": "1",
                     "OPENAI_API_KEY": "test-openai-key",
                     "ELEVENSLAB_API_KEY": "",
                 },
@@ -121,6 +122,29 @@ class AudioGenerationTests(unittest.TestCase):
                             result = audio_generate_agent.audio_generate_agent_run(DummyAgent())
 
             self.assertIn("failed to generate podcast audio", result.lower())
+
+    def test_audio_generation_never_replaces_failed_speech_with_a_tone(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "PODCAST_STUDIO_USE_REAL_TTS": "1",
+                    "PODCAST_STUDIO_TTS_FALLBACKS": "0",
+                    "PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO": "true",
+                },
+                clear=False,
+            ):
+                with patch.object(internal_session_service, "SessionService", DummySessionService):
+                    with patch.object(audio_generate_agent, "PODCAST_AUDIO_FOLDER", tmp_dir):
+                        with patch.object(audio_generate_agent, "generate_podcast_audio", return_value=None):
+                            with patch.object(audio_generate_agent, "_create_placeholder_audio") as placeholder:
+                                result = audio_generate_agent.audio_generate_agent_run(DummyAgent())
+
+            self.assertIn("failed to generate podcast audio", result.lower())
+            placeholder.assert_not_called()
+            state = DummySessionService.sessions["test-session"]["state"]
+            self.assertNotIn("audio_url", state)
+            self.assertFalse(state["show_audio_for_confirmation"])
 
     def test_extract_script_entries_normalizes_speakers(self):
         script_data = {
