@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 import uvicorn
 import os
+import tempfile
 import subprocess
 import sys
 import aiofiles
@@ -19,8 +20,12 @@ load_dotenv(dotenv_path=env_path)
 
 APP_ROOT = Path(__file__).resolve().parent
 _is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
-_default_runtime_root = "/tmp/castora" if os.environ.get("VERCEL") else ("/var/data" if _is_render else APP_ROOT)
-RUNTIME_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", _default_runtime_root))
+# Render Free's filesystem is ephemeral and exposes no /var/data disk. The
+# approved podcast database/assets are restored from Supabase during lifespan.
+if _is_render or os.environ.get("VERCEL"):
+    RUNTIME_ROOT = Path(tempfile.gettempdir()) / "castora"
+else:
+    RUNTIME_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", APP_ROOT))
 PODCAST_ROOT = RUNTIME_ROOT / "podcasts"
 PODCAST_AUDIO_DIR = PODCAST_ROOT / "audio"
 PODCAST_IMAGES_DIR = PODCAST_ROOT / "images"
@@ -40,7 +45,13 @@ scheduler_process = None
 async def lifespan(app: FastAPI):
     global scheduler_process
     print("Starting up application...")
+    from services.podcast_backup_service import restore_podcast_assets, restore_podcast_backup
+
+    restore_podcast_backup()
     await init_databases()
+    restored_assets = restore_podcast_assets()
+    if restored_assets:
+        print(f"Restored {restored_assets} podcast asset(s) from Supabase Storage.")
     if os.environ.get("SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}:
         # Keep scheduled feed ingestion alive whenever the API is running.
         # Running it as a child process preserves the scheduler's signal-based

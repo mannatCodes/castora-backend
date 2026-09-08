@@ -1,17 +1,20 @@
 import os
+import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 _is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
-_default_runtime_root = "/tmp/castora" if os.environ.get("VERCEL") else (
-    "/var/data" if _is_render else Path(__file__).resolve().parent.parent
-)
-# Render's application filesystem is ephemeral.  All databases and podcast
-# assets must resolve below its mounted disk, even if the explicit variable is
-# accidentally omitted from the dashboard configuration.
-APP_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", _default_runtime_root))
+# Render Free has no mounted disk. Its /tmp directory is writable for the
+# life of the instance, and approved podcast data is restored/backed up via
+# Supabase instead. Ignore stale /var/data settings left from paid deployments.
+if _is_render:
+    APP_ROOT = Path(tempfile.gettempdir()) / "castora"
+elif os.environ.get("VERCEL"):
+    APP_ROOT = Path(tempfile.gettempdir()) / "castora"
+else:
+    APP_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", Path(__file__).resolve().parent.parent))
 DEFAULT_DB_PATHS = {
     "sources_db": "databases/sources.db",
     "tracking_db": "databases/feed_tracking.db",
@@ -64,7 +67,7 @@ def get_internal_sessions_db_path():
 
 
 def get_browser_session_path():
-    return "browsers/playwright_persistent_profile"
+    return str(APP_ROOT / "browsers" / "playwright_persistent_profile")
 
 def get_slack_sessions_db_path():
     return get_db_path("slack_sessions_db")

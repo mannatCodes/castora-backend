@@ -91,6 +91,9 @@ def _save_podcast_to_database_sync(session_state: dict) -> tuple[bool, str, int]
             ),
         )
         conn.commit()
+        # Include every committed page in the uploaded SQLite database, not a
+        # separate WAL file that Render will discard during redeployment.
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
         cursor = conn.execute("SELECT last_insert_rowid()")
         podcast_id = cursor.fetchone()
@@ -98,8 +101,23 @@ def _save_podcast_to_database_sync(session_state: dict) -> tuple[bool, str, int]
         cursor.close()
         conn.close()
 
+        from services.podcast_backup_service import backup_approved_podcast
+
+        backed_up, backup_message = backup_approved_podcast(
+            audio_url,
+            banner_url,
+            session_state.get("banner_images", []),
+        )
+        if not backed_up:
+            # Remove the local insert so retrying approval cannot create an
+            # unbacked duplicate that vanishes on Render's next restart.
+            with sqlite3.connect(db_path) as rollback_conn:
+                rollback_conn.execute("DELETE FROM podcasts WHERE id = ?", (podcast_id,))
+                rollback_conn.commit()
+            return False, backup_message, None
+
         session_state["podcast_id"] = podcast_id
-        return True, f"Podcast successfully saved with ID: {podcast_id}", podcast_id
+        return True, f"Podcast successfully saved with ID: {podcast_id}. {backup_message}", podcast_id
     except Exception as e:
         print(f"Error saving podcast to database: {e}")
         return False, f"Error saving podcast to database: {str(e)}", None

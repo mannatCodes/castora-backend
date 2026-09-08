@@ -155,7 +155,8 @@ AGENT_INSTRUCTIONS = [
 # PATHS
 # =========================
 # Keep Studio assets beside the runtime SQLite databases.  On Render this is
-# the mounted /var/data directory used by FastAPI's static endpoints.
+# the temporary runtime directory used by FastAPI's static endpoints. On
+# Render Free, approved assets are restored from Supabase at startup.
 DB_PATH = str(APP_ROOT / "databases")
 PODCAST_DIR = str(APP_ROOT / "podcasts")
 PODCAST_IMG_DIR = str(APP_ROOT / "podcasts" / "images")

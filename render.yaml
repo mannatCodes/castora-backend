@@ -4,18 +4,20 @@ services:
     runtime: python
     plan: 0.5c-512mb
     buildCommand: pip install -r requirements.txt
-    startCommand: bash start_render.sh
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT
     healthCheckPath: /healthz
-    disk:
-      name: castora-runtime
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: CASTORA_RUNTIME_DIR
-        value: /var/data
-      # Seed the initial RSS sources when a new persistent disk is attached.
-      # Without sources the feed processor has nothing to ingest, leaving the
-      # Articles page empty.
+      # Podcast data is backed up outside Render because Free web services
+      # cannot attach disks. Set these two values from a Supabase project.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_PODCASTS_BUCKET
+        value: castora-podcasts
+      - key: CLOUD_PODCAST_BACKUP_REQUIRED
+        value: "true"
+      # Seed the initial RSS sources when the app starts.
       - key: CASTORA_SEED_DEFAULT_SOURCES
         value: "true"
       - key: REDIS_URL
