@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Dict, List, Any, Tuple, Union
 from fastapi import HTTPException
 from contextlib import contextmanager
@@ -11,8 +12,12 @@ def db_connection(db_path: str):
     """Context manager for database connections."""
     if not os.path.exists(db_path):
         raise HTTPException(status_code=404, detail=f"Database {db_path} not found. Initialize the database first.")
-    conn = sqlite3.connect(db_path)
+    # The scheduler writes the same files as the API.  A bounded busy timeout
+    # prevents a locked database from tying up an HTTP request indefinitely.
+    conn = sqlite3.connect(db_path, timeout=5)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
     try:
         yield conn
     finally:
@@ -35,7 +40,7 @@ class DatabaseService:
         self, query: str, params: Tuple = (), fetch: bool = False, fetch_one: bool = False
     ) -> Union[List[Dict[str, Any]], Dict[str, Any], int]:
         """Execute a query with error handling for FastAPI."""
-        try:
+        def run_query():
             with db_connection(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
@@ -48,6 +53,11 @@ class DatabaseService:
                 else:
                     conn.commit()
                     return cursor.lastrowid
+
+        try:
+            # sqlite3 is synchronous.  Keeping it off FastAPI's event loop
+            # means one slow/locked database call cannot freeze every route.
+            return await asyncio.to_thread(run_query)
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
@@ -55,12 +65,15 @@ class DatabaseService:
 
     async def execute_write_many(self, query: str, params_list: List[Tuple]) -> int:
         """Execute multiple write operations in a single transaction."""
-        try:
+        def run_query():
             with db_connection(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.executemany(query, params_list)
                 conn.commit()
                 return cursor.rowcount
+
+        try:
+            return await asyncio.to_thread(run_query)
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e

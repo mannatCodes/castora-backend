@@ -285,8 +285,12 @@ def refresh_articles_from_feeds():
 
         crawl_stats = crawl_in_batches(
             tracking_db_path=tracking_db_path,
+            # This runs beside the web API on the small hosted instance.
+            # A bounded batch keeps ingestion from monopolising CPU, memory,
+            # and the SQLite writer lock.  The hourly scheduler will collect
+            # the remaining entries on subsequent runs.
             batch_size=20,
-            total_batches=50,
+            total_batches=1,
             delay_between_batches=10,
         )
         print_crawl_stats(crawl_stats)

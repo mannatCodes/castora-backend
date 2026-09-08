@@ -5,6 +5,7 @@ from typing import List, Optional
 from textwrap import dedent
 from datetime import datetime
 import os
+import re
 from utils.retry_handler import run_with_retry_and_throttle
 
 
@@ -142,6 +143,57 @@ def _has_live_search_sources(search_results: list[dict]) -> bool:
     return any(source.get("tool_used") in live_tools for source in search_results)
 
 
+def _topic_terms(query: str) -> list[str]:
+    """Return the meaningful words that must remain central to an episode."""
+    ignored = {"about", "podcast", "create", "make", "latest", "news", "the", "and", "with"}
+    return [
+        term for term in re.findall(r"[a-z0-9]+", (query or "").lower())
+        if len(term) > 2 and term not in ignored
+    ]
+
+
+def _term_in_text(term: str, text: str) -> bool:
+    # Singular/plural forms are common in natural language and should count as
+    # the same topic; this also prevents "women" from being lost to "woman".
+    if term in {"women", "woman"}:
+        return bool(re.search(r"\bwom[ae]n\b", text))
+    if term in {"girls", "girl"}:
+        return bool(re.search(r"\bgirls?\b", text))
+    return bool(re.search(rf"\b{re.escape(term)}s?\b", text))
+
+
+def _relevant_evidence(query: str, search_results: list[dict]) -> list[dict]:
+    """Keep only substantive sources that discuss the requested subject."""
+    terms = _topic_terms(query)
+    evidence = []
+    for source in search_results:
+        if source.get("source_name") == "local_topic_fallback":
+            continue
+        text = " ".join(
+            str(source.get(field, "") or "")
+            for field in ("title", "description", "full_text")
+        ).lower()
+        if len(text.strip()) < 80:
+            continue
+        if not terms or all(_term_in_text(term, text) for term in terms):
+            evidence.append(source)
+    return evidence
+
+
+def _script_covers_topic(script: dict, query: str) -> bool:
+    """Do not publish a polished-looking script that has drifted off topic."""
+    terms = _topic_terms(query)
+    if not terms:
+        return True
+    dialog = " ".join(
+        str(item.get("text", ""))
+        for section in script.get("sections", [])
+        for item in section.get("dialog", [])
+        if isinstance(item, dict)
+    ).lower()
+    return len(dialog) >= 120 and all(_term_in_text(term, dialog) for term in terms)
+
+
 def _build_local_script(query: str, language_name: str, search_results: list[dict]) -> dict:
     topic = query.strip() or "Untitled Podcast"
     sources = [source.get("url", "") for source in search_results if source.get("url")]
@@ -178,7 +230,7 @@ def _build_local_script(query: str, language_name: str, search_results: list[dic
                 },
                 {
                     "speaker": "MORGAN",
-                        "text": "We'll keep this grounded, practical, and useful, moving through the strongest source points without waiting on a remote script model.",
+                    "text": f"Every segment stays focused on {topic}; we will use only the evidence in the selected sources rather than drifting into unrelated news.",
                 },
             ],
         }
@@ -274,6 +326,25 @@ def podcast_script_agent_run(agent: Agent, query: str, language_name: str) -> st
             for result in session_state.get("search_results", [])
             if result.get("confirmed", False)
         ]
+
+        # A user can select any cards in the interface. Validate again at the
+        # generation boundary: selection must not turn an episode about women
+        # (or any other topic) into a summary of unrelated headlines.
+        relevant_sources = _relevant_evidence(query, search_results)
+        if search_results and not relevant_sources:
+            session_state["generated_script"] = None
+            session_state["stage"] = "source_selection"
+            session_state["is_processing"] = False
+            session_state["show_sources_for_selection"] = True
+            session_state["show_script_for_confirmation"] = False
+            session_state["response"] = (
+                f"The selected sources do not contain enough information about {query}. "
+                "Please choose topic-specific sources before creating the script."
+            )
+            SessionService.save_session(session_id, session_state)
+            return session_state["response"]
+        if relevant_sources:
+            search_results = relevant_sources
 
         if search_results:
             print(f"[INFO] Using {len(search_results)} user-selected sources for: {query}")
@@ -405,6 +476,19 @@ Rules:
                 )
 
         result["sources"] = sources
+
+        if not _script_covers_topic(result, query):
+            # The local script copies only verified source material and keeps
+            # the topic explicit, so it is a safer recovery than publishing an
+            # off-topic model response.
+            return _save_local_script(
+                session_id,
+                session_state,
+                query,
+                language_name,
+                search_results,
+                "The generated draft did not stay sufficiently focused on the requested topic, so I rebuilt it from the verified topic-specific sources.",
+            )
 
         # =========================
         # SESSION SAVE

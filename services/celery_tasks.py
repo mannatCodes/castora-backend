@@ -171,6 +171,10 @@ def _handle_source_selection_directly(session_id: str, message: str, session_sta
             source["is_scrapping_required"] = False
 
     session_state["search_results"] = search_results
+    # Preserve the exact requested topic.  The title is presentation text and
+    # can be edited/truncated; it must not become the source of truth used to
+    # assess whether the eventual script is on-topic.
+    topic = session_state.get("podcast_topic") or session_state.get("title") or message
     session_state["selected_language"] = selected_language
     session_state["show_sources_for_selection"] = False
     session_state["show_script_for_confirmation"] = False
@@ -179,7 +183,7 @@ def _handle_source_selection_directly(session_id: str, message: str, session_sta
 
     podcast_script_agent_run(
         SimpleNamespace(session_id=session_id),
-        session_state.get("title") or message,
+        topic,
         selected_language.get("name", "English"),
     )
 
@@ -523,6 +527,7 @@ def _prepare_sources_without_ai(session_id: str, topic: str) -> dict:
         fallback_notice = " I created a local fallback source so the podcast flow can continue without the AI provider."
 
     session_state["search_results"] = results
+    session_state["podcast_topic"] = topic
     session_state["stage"] = "source_selection"
     session_state["title"] = topic[:60].strip().title() or "Podcast"
     session_state["show_sources_for_selection"] = True
@@ -556,6 +561,7 @@ def _prepare_sources_after_tool_failure(session_id: str, topic: str) -> dict:
         search_agent_run(SimpleNamespace(session_id=session_id), topic)
         session = SessionService.get_session(session_id)
         session_state = session.get("state", session_state)
+        results = session_state.get("search_results", [])
     except Exception as search_error:
         print(f"Search agent fallback also failed: {search_error}")
         results = _search_live_google_sources(topic)
@@ -569,9 +575,10 @@ def _prepare_sources_after_tool_failure(session_id: str, topic: str) -> dict:
             fallback_notice = " Live Google search was unavailable, so I used relevant local articles."
         if not results:
             raise search_error
-        session_state["search_results"] = results
-        if not fallback_notice:
-            fallback_notice = " I used the local article database because the live search tool had a validation issue."
+    session_state["search_results"] = results
+    session_state["podcast_topic"] = topic
+    if not fallback_notice:
+        fallback_notice = " I used the local article database because the live search tool had a validation issue."
 
     session_state["stage"] = "source_selection"
     session_state["title"] = topic[:60].strip().title() or "Podcast"
