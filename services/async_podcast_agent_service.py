@@ -43,9 +43,23 @@ class PodcastAgentService:
         self.redis_host = os.environ.get("REDIS_HOST", "localhost")
         self.redis_port = int(os.environ.get("REDIS_PORT", 6379))
         self.redis_db = int(os.environ.get("REDIS_DB", 0))
-        self.redis_pool = ConnectionPool.from_url(f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db + 1}", max_connections=10)
+        # Render provides a complete Redis URL (including credentials and TLS
+        # settings).  Rebuilding a localhost URL loses those details, so the
+        # API could not see locks/results created by the deployed worker.
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            self.redis_pool = ConnectionPool.from_url(redis_url, db=self.redis_db + 1, max_connections=10)
+        else:
+            self.redis_pool = ConnectionPool.from_url(
+                f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db + 1}",
+                max_connections=10,
+            )
         self.redis = Redis(connection_pool=self.redis_pool)
-        self.use_celery = os.environ.get("PODCAST_AGENT_USE_CELERY", "0").lower() in {"1", "true", "yes"}
+        # Use the durable worker whenever a broker is configured. Local
+        # development remains worker-free unless explicitly opted in.
+        self.use_celery = os.environ.get(
+            "PODCAST_AGENT_USE_CELERY", "1" if redis_url else "0"
+        ).lower() in {"1", "true", "yes"}
         self.executor = ThreadPoolExecutor(max_workers=int(os.environ.get("PODCAST_AGENT_WORKERS", 2)))
         self.local_task_timeout_seconds = int(os.environ.get("PODCAST_AGENT_TASK_TIMEOUT_SECONDS", 180))
         self.local_tasks = {}

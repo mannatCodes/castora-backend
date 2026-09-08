@@ -4,8 +4,13 @@ from contextlib import contextmanager
 
 @contextmanager
 def db_connection(db_path):
-    conn = sqlite3.connect(db_path)
+    # The API, scheduler and Celery worker share the persistent SQLite files
+    # in production. Wait for a short-lived writer rather than failing reads
+    # intermittently with "database is locked".
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA journal_mode = WAL")
     try:
         yield conn
     finally:

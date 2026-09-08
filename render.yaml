@@ -27,6 +27,10 @@ services:
         sync: false
       - key: ELEVENSLAB_API_KEY
         sync: false
+      # Standard spelling accepted by the audio provider. The backend also
+      # supports the legacy ELEVENSLAB_API_KEY above for existing deployments.
+      - key: ELEVENLABS_API_KEY
+        sync: false
       - key: PODCAST_STUDIO_USE_REAL_TTS
         value: "true"
       # A hosted engine avoids loading the resource-heavy local Kokoro model
@@ -38,6 +42,8 @@ services:
       - key: PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO
         value: "false"
       - key: PODCAST_STUDIO_USE_AI_SCRIPT
+        value: "true"
+      - key: PODCAST_AGENT_USE_CELERY
         value: "true"
 
   - type: keyvalue
