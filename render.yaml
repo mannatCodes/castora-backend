@@ -29,6 +29,14 @@ services:
         sync: false
       - key: PODCAST_STUDIO_USE_REAL_TTS
         value: "true"
+      # A hosted engine avoids loading the resource-heavy local Kokoro model
+      # in the Render web process. Configure ELEVENSLAB_API_KEY in Render.
+      - key: PODCAST_STUDIO_DEFAULT_TTS_ENGINE
+        value: "elevenlabs"
+      - key: PODCAST_STUDIO_TTS_FALLBACKS
+        value: "false"
+      - key: PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO
+        value: "true"
       - key: PODCAST_STUDIO_USE_AI_SCRIPT
         value: "true"
 

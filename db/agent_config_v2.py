@@ -1,6 +1,7 @@
 from agno.storage.sqlite import SqliteStorage
 from db.config import APP_ROOT, get_agent_session_db_path
 import json
+import os
 
 AGENT_MODEL = "llama-3.3-70b-versatile"
 
@@ -179,7 +180,10 @@ INITIAL_SESSION_STATE = {
     "finished": False,
     "show_banner_for_confirmation": False,
     "show_audio_for_confirmation": False,
-    "tts_engine": "kokoro",
+    # Render's small web instance is not suitable for loading Kokoro's local
+    # model. Production selects a hosted engine through this environment
+    # variable, while local development can continue using Kokoro by default.
+    "tts_engine": os.environ.get("PODCAST_STUDIO_DEFAULT_TTS_ENGINE", "kokoro"),
 }
 
 STORAGE = SqliteStorage(

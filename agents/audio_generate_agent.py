@@ -452,9 +452,13 @@ def audio_generate_agent_run(agent: Agent) -> str:
             if use_real_tts:
                 engines_to_try = _configured_tts_engines(tts_engine)
                 if not engines_to_try:
-                    error_msg = "Failed to generate podcast audio: no configured TTS engine is available."
-                    print(error_msg)
-                    return error_msg
+                    if allow_placeholder:
+                        print("No hosted TTS engine is configured; creating placeholder audio.")
+                        full_audio_path = _create_placeholder_audio(audio_path)
+                    else:
+                        error_msg = "Failed to generate podcast audio: no configured TTS engine is available."
+                        print(error_msg)
+                        return error_msg
                 for engine in engines_to_try:
                     print(f"Trying TTS engine: {engine}")
                     full_audio_path = generate_podcast_audio(
