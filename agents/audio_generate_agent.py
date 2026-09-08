@@ -7,12 +7,13 @@ import soundfile as sf
 from typing import Any, Dict, List, Optional, Tuple
 from utils.load_api_keys import load_api_key
 from utils.tts_engine_selector import generate_podcast_audio
+from db.config import APP_ROOT
 from openai import OpenAI
 from scipy import signal
 
 
-PODCASTS_FOLDER = "podcasts"
-PODCAST_AUDIO_FOLDER = os.path.join(PODCASTS_FOLDER, "audio")
+PODCASTS_FOLDER = str(APP_ROOT / "podcasts")
+PODCAST_AUDIO_FOLDER = str(APP_ROOT / "podcasts" / "audio")
 PODCAST_MUSIC_FOLDER = os.path.join('static', "musics")
 OPENAI_VOICES = {1: "alloy", 2: "echo", 3: "fable", 4: "onyx", 5: "nova", 6: "shimmer"}
 DEFAULT_VOICE_MAP = {1: "alloy", 2: "nova"}

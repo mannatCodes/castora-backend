@@ -1,5 +1,5 @@
 from agno.storage.sqlite import SqliteStorage
-from db.config import get_agent_session_db_path
+from db.config import APP_ROOT, get_agent_session_db_path
 import json
 
 AGENT_MODEL = "llama-3.3-70b-versatile"
@@ -153,11 +153,13 @@ AGENT_INSTRUCTIONS = [
 # =========================
 # PATHS
 # =========================
-DB_PATH = "databases"
-PODCAST_DIR = "podcasts"
-PODCAST_IMG_DIR = PODCAST_DIR + "/images"
-PODCAST_AUDIO_DIR = PODCAST_DIR + "/audio"
-PODCAST_RECORDINGS_DIR = PODCAST_DIR + "/recordings"
+# Keep Studio assets beside the runtime SQLite databases.  On Render this is
+# the mounted /var/data directory used by FastAPI's static endpoints.
+DB_PATH = str(APP_ROOT / "databases")
+PODCAST_DIR = str(APP_ROOT / "podcasts")
+PODCAST_IMG_DIR = str(APP_ROOT / "podcasts" / "images")
+PODCAST_AUDIO_DIR = str(APP_ROOT / "podcasts" / "audio")
+PODCAST_RECORDINGS_DIR = str(APP_ROOT / "podcasts" / "recordings")
 
 # =========================
 # SESSION STATE

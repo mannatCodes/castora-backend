@@ -5,9 +5,10 @@ from datetime import datetime
 from fastapi import HTTPException, UploadFile
 from services.db_service import podcasts_db
 import math
+from db.config import APP_ROOT
 
-AUDIO_DIR = "podcasts/audio"
-IMAGE_DIR = "podcasts/images"
+AUDIO_DIR = str(APP_ROOT / "podcasts" / "audio")
+IMAGE_DIR = str(APP_ROOT / "podcasts" / "images")
 
 
 class PodcastService:
