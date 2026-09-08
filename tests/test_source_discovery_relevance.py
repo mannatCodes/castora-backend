@@ -69,6 +69,41 @@ class SourceDiscoveryRelevanceTests(unittest.TestCase):
         self.assertEqual(DummySessionService.state["search_results"][0]["tool_used"], "google_live_search")
         self.assertFalse(DummySessionService.state["search_results"][0]["is_scrapping_required"])
 
+    def test_prepare_sources_uses_google_when_local_content_is_too_thin(self):
+        class DummySessionService:
+            state = {}
+
+            @staticmethod
+            def get_session(session_id):
+                return {"state": DummySessionService.state}
+
+            @staticmethod
+            def save_session(session_id, session_state):
+                DummySessionService.state = session_state
+
+        thin_local_result = {
+            "url": "https://example.com/local",
+            "title": "Relevant but incomplete",
+            "description": "A short local match.",
+            "full_text": "A short local match.",
+        }
+        live_result = {
+            "url": "https://example.com/google",
+            "title": "Detailed Google result",
+            "description": "A detailed, current source from Google.",
+            "full_text": "A detailed, current source from Google.",
+            "tool_used": "google_live_search",
+        }
+
+        with patch("services.internal_session_service.SessionService", DummySessionService):
+            with patch.object(celery_tasks, "_search_local_articles", return_value=[thin_local_result]):
+                with patch.object(celery_tasks, "_search_live_google_sources", return_value=[live_result]) as google_search:
+                    response = celery_tasks._prepare_sources_without_ai("session-thin", "create a podcast about climate change")
+
+        google_search.assert_called_once_with("climate change")
+        self.assertIn("Google live", response["response"])
+        self.assertEqual(DummySessionService.state["search_results"], [live_result])
+
     def test_prepare_sources_uses_google_news_only_if_google_search_has_no_matches(self):
         class DummySessionService:
             state = {}

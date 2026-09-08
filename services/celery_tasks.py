@@ -291,6 +291,18 @@ def _filter_relevant_sources(topic: str, sources: list[dict]) -> list[dict]:
     return [source for _, source in scored]
 
 
+def _has_sufficient_local_source_content(sources: list[dict]) -> bool:
+    """Require enough distinct, substantive local material before skipping web search."""
+    if len(sources) < 3:
+        return False
+
+    total_characters = sum(
+        len(str(source.get("full_text") or source.get("description") or "").strip())
+        for source in sources
+    )
+    return total_characters >= 1_200
+
+
 def _is_podcast_topic_request(message: str) -> bool:
     lowered = message.lower()
     normalized = re.sub(r"\b(podacst|podcats)\b", "podcast", lowered)
@@ -477,11 +489,14 @@ def _prepare_sources_without_ai(session_id: str, topic: str) -> dict:
     session = SessionService.get_session(session_id)
     session_state = session.get("state", INITIAL_SESSION_STATE)
     results = _search_local_articles(topic)
-    fallback_notice = " I used the local article database so we do not hit the AI provider rate limit."
+    local_content_is_sufficient = _has_sufficient_local_source_content(results)
+    fallback_notice = " I used the local article database because it has enough relevant material for this episode."
 
-    if not results:
-        results = _search_live_google_sources(topic)
-        fallback_notice = " I searched Google live because the local article database did not have relevant matches."
+    if not local_content_is_sufficient:
+        google_results = _search_live_google_sources(topic)
+        if google_results:
+            results = google_results
+            fallback_notice = " I searched Google live because the local article database did not have enough relevant content."
 
     if not results:
         results = _search_live_news_sources(topic)
@@ -546,9 +561,11 @@ def _prepare_sources_after_tool_failure(session_id: str, topic: str) -> dict:
     except Exception as search_error:
         print(f"Search agent fallback also failed: {search_error}")
         results = _search_local_articles(topic)
-        if not results:
-            results = _search_live_google_sources(topic)
-            fallback_notice = " I searched Google live because the local article database did not have relevant matches."
+        if not _has_sufficient_local_source_content(results):
+            google_results = _search_live_google_sources(topic)
+            if google_results:
+                results = google_results
+                fallback_notice = " I searched Google live because the local article database did not have enough relevant content."
         if not results:
             results = _search_live_news_sources(topic)
             fallback_notice = " I searched Google News live because Google web search did not return relevant matches."
@@ -640,8 +657,8 @@ def _handle_stage_approval_directly(session_id: str, message: str, session_state
             response = result_message or "Audio is ready. Please review it."
         else:
             session_state["stage"] = "audio"
-            session_state["show_audio_for_confirmation"] = True
-            response = result_message or "Audio generation had an issue, but you can continue or retry."
+            session_state["show_audio_for_confirmation"] = False
+            response = result_message or "Audio generation failed. Check the TTS provider and retry the audio step."
         SessionService.save_session(session_id, session_state)
         return {
             "session_id": session_id,

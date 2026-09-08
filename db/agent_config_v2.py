@@ -181,8 +181,8 @@ INITIAL_SESSION_STATE = {
     "show_banner_for_confirmation": False,
     "show_audio_for_confirmation": False,
     # The Render web instance cannot reliably load Kokoro's local model.
-    # Deployments use ElevenLabs when configured, otherwise the audio agent
-    # falls back to a short local placeholder so the workflow can finish.
+    # Deployments use the configured hosted TTS provider. A failed provider
+    # must be reported; it must never be represented as spoken podcast audio.
     "tts_engine": os.environ.get("PODCAST_STUDIO_DEFAULT_TTS_ENGINE", "elevenlabs"),
 }
 
