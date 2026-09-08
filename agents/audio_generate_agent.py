@@ -6,7 +6,7 @@ import numpy as np
 import soundfile as sf
 from typing import Any, Dict, List, Optional, Tuple
 from utils.load_api_keys import load_api_key
-from utils.tts_engine_selector import generate_podcast_audio
+from utils.tts_engine_selector import generate_podcast_audio, get_last_tts_error
 from db.config import APP_ROOT
 from openai import OpenAI
 from scipy import signal
@@ -450,6 +450,7 @@ def audio_generate_agent_run(agent: Agent) -> str:
     else:
         podcast_title = "Your Podcast"
     session_state["stage"] = "audio"
+    session_state.pop("tts_errors", None)
     audio_dir = PODCAST_AUDIO_FOLDER
     audio_filename = f"podcast_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
     audio_path = os.path.join(audio_dir, audio_filename)
@@ -497,9 +498,15 @@ def audio_generate_agent_run(agent: Agent) -> str:
                         session_state["tts_engine"] = engine
                         break
                     else:
-                        print(f"TTS engine {engine} failed, trying next...")
+                        provider_error = get_last_tts_error()
+                        print(f"TTS engine {engine} failed: {provider_error or 'no error detail'}, trying next...")
+                        if provider_error:
+                            session_state.setdefault("tts_errors", []).append(f"{engine}: {provider_error}")
                 if not full_audio_path:
-                    error_msg = "Failed to generate podcast audio with any TTS engine. Real TTS is enabled by default; check your API keys or dependencies."
+                    errors = session_state.get("tts_errors", [])[-3:]
+                    error_msg = "Failed to generate podcast audio with any TTS engine."
+                    if errors:
+                        error_msg += " Provider details: " + " | ".join(errors)
                     return fail_audio_generation(error_msg)
             else:
                 error_msg = "Failed to generate podcast audio: real TTS is disabled. Enable a TTS provider to create spoken audio."

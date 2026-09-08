@@ -12,6 +12,16 @@ DEFAULT_VOICE_MAP = {
     1: "21m00Tcm4TlvDq8ikWAM",  # Rachel
     2: "pNInz6obpgDQGcFmaJgB",  # Adam
 }
+_LAST_ELEVENLABS_ERROR = ""
+
+
+def _set_last_elevenlabs_error(message: str) -> None:
+    global _LAST_ELEVENLABS_ERROR
+    _LAST_ELEVENLABS_ERROR = str(message or "").replace("\n", " ")[:500]
+
+
+def get_last_elevenlabs_error() -> str:
+    return _LAST_ELEVENLABS_ERROR
 
 
 def create_silence_audio(silence_duration: float, sampling_rate: int) -> np.ndarray:
@@ -62,7 +72,9 @@ def text_to_speech_elevenlabs(
     voice_map = voice_map or DEFAULT_VOICE_MAP
     voice_name_or_id = voice_map.get(speaker_id)
     if not voice_name_or_id:
-        print(f"No voice found for speaker_id {speaker_id}")
+        message = f"No ElevenLabs voice is configured for speaker {speaker_id}"
+        print(message)
+        _set_last_elevenlabs_error(message)
         return None
     try:
         # Request PCM directly. This avoids ffmpeg/MP3 decoding failures and
@@ -75,12 +87,15 @@ def text_to_speech_elevenlabs(
         )
         audio_data = b"".join(chunk for chunk in audio_generator if chunk)
         if not audio_data:
+            _set_last_elevenlabs_error("ElevenLabs returned an empty audio response")
             return None
         samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
         return (samples, 24_000) if samples.size else None
 
     except Exception as e:
-        print(f"Error during ElevenLabs API call: {e}")
+        message = f"ElevenLabs API request failed: {e}"
+        print(message)
+        _set_last_elevenlabs_error(message)
         import traceback
 
         traceback.print_exc()
@@ -97,13 +112,18 @@ def create_podcast(
     voice_map: Optional[dict] = None,
     api_key: str = None,
 ) -> str:
+    _set_last_elevenlabs_error("")
     if not api_key:
-        print("ElevenLabs API key is not configured")
+        message = "ElevenLabs API key is not configured"
+        print(message)
+        _set_last_elevenlabs_error(message)
         return None
     try:
         client = ElevenLabs(api_key=api_key)
     except Exception as e:
-        print(f"Fatal Error: Failed to initialize ElevenLabs client: {e}")
+        message = f"Failed to initialize ElevenLabs client: {e}"
+        print(message)
+        _set_last_elevenlabs_error(message)
         return None
     output_path = os.path.abspath(output_path)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -145,12 +165,16 @@ def create_podcast(
                     pass
             generated_segments.append(segment_audio)
     if not generated_segments or determined_sampling_rate <= 0:
+        if not get_last_elevenlabs_error():
+            _set_last_elevenlabs_error("ElevenLabs did not generate any usable speech segments")
         return None
     full_audio = combine_audio_segments(generated_segments, silence_duration, determined_sampling_rate)
     if full_audio.size == 0:
+        _set_last_elevenlabs_error("ElevenLabs generated an empty combined audio file")
         return None
     write_to_disk(output_path, full_audio, determined_sampling_rate)
     if os.path.exists(output_path):
         return output_path
     else:
+        _set_last_elevenlabs_error("ElevenLabs audio file was not written to disk")
         return None

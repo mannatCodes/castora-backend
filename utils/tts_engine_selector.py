@@ -1,8 +1,10 @@
 import os
+import threading
 from typing import Any, Callable, Optional
 from utils.load_api_keys import load_api_key
 
 _TTS_ENGINES = {}
+_tts_error = threading.local()
 TTS_OPENAI_MODEL = "gpt-4o-mini-tts"
 TTS_ELEVENLABS_MODEL = "eleven_multilingual_v2"
 
@@ -11,22 +13,41 @@ def register_tts_engine(name: str, generator_func: Callable):
     _TTS_ENGINES[name.lower()] = generator_func
 
 
+def get_last_tts_error() -> str:
+    """Return the last provider error from the current worker thread."""
+    return getattr(_tts_error, "message", "")
+
+
+def _set_last_tts_error(message: str) -> None:
+    # Provider exceptions may contain request metadata. Keep the useful reason
+    # for the Studio UI, but never surface an API key.
+    message = str(message or "").replace("\n", " ")[:500]
+    _tts_error.message = message
+
+
 def generate_podcast_audio(
     script: Any, output_path: str, tts_engine: str = "kokoro", language_code: str = "en", silence_duration: float = 0.7, voice_map=None
 ) -> Optional[str]:
+    _set_last_tts_error("")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     engine_name = tts_engine.lower()
     if engine_name not in _TTS_ENGINES:
-        print(f"Unsupported TTS engine: {tts_engine}")
+        message = f"Unsupported TTS engine: {tts_engine}"
+        print(message)
+        _set_last_tts_error(message)
         return None
     try:
-        return _TTS_ENGINES[engine_name](
+        result = _TTS_ENGINES[engine_name](
             script=script, output_path=output_path, language_code=language_code, silence_duration=silence_duration, voice_map=voice_map
         )
+        if not result and not get_last_tts_error():
+            _set_last_tts_error(f"{tts_engine} returned no audio data")
+        return result
     except Exception as e:
         import traceback
 
         print(f"Error generating audio with {tts_engine}: {e}")
+        _set_last_tts_error(f"{tts_engine}: {e}")
         traceback.print_exc()
         return None
 
@@ -42,11 +63,14 @@ def register_default_engines():
         )
 
     def elevenlabs_generator(script, output_path, language_code, silence_duration, voice_map):
-        from utils.text_to_audio_elevenslab import create_podcast as elevenlabs_create_podcast
+        from utils.text_to_audio_elevenslab import (
+            create_podcast as elevenlabs_create_podcast,
+            get_last_elevenlabs_error,
+        )
 
         if voice_map is None:
             voice_map = {1: "21m00Tcm4TlvDq8ikWAM", 2: "pNInz6obpgDQGcFmaJgB"}
-        return elevenlabs_create_podcast(
+        result = elevenlabs_create_podcast(
             script=script,
             output_path=output_path,
             silence_duration=silence_duration,
@@ -54,6 +78,9 @@ def register_default_engines():
             elevenlabs_model=TTS_ELEVENLABS_MODEL,
             api_key=load_api_key("ELEVENSLAB_API_KEY"),
         )
+        if not result:
+            raise RuntimeError(get_last_elevenlabs_error() or "ElevenLabs returned no audio data")
+        return result
 
     def kokoro_generator(script, output_path, language_code, silence_duration, voice_map):
         from utils.text_to_audio_kokoro import create_podcast as kokoro_create_podcast
