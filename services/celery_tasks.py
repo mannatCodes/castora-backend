@@ -622,10 +622,38 @@ def _is_audio_approval(message: str, session_state: dict) -> bool:
     )
 
 
+def _is_audio_retry(message: str, session_state: dict) -> bool:
+    """Allow a failed audio step to be retried from the current Studio chat."""
+    lowered = message.lower()
+    return (
+        session_state.get("stage") == "audio"
+        and bool(session_state.get("audio_error"))
+        and any(phrase in lowered for phrase in ("retry", "generate audio", "try audio", "try again"))
+    )
+
+
 def _handle_stage_approval_directly(session_id: str, message: str, session_state: dict) -> dict | None:
     from services.internal_session_service import SessionService
 
     agent_stub = SimpleNamespace(session_id=session_id)
+
+    if _is_audio_retry(message, session_state):
+        session_state["stage"] = "audio_generation"
+        session_state["show_audio_for_confirmation"] = False
+        SessionService.save_session(session_id, session_state)
+        result_message = audio_generate_agent_run(agent_stub)
+        session_state = SessionService.get_session(session_id).get("state", session_state)
+        session_state["stage"] = "audio"
+        session_state["show_audio_for_confirmation"] = bool(session_state.get("audio_url"))
+        SessionService.save_session(session_id, session_state)
+        return {
+            "session_id": session_id,
+            "response": result_message or "Audio generation failed. Please retry after checking the TTS provider.",
+            "stage": "audio",
+            "session_state": json.dumps(session_state),
+            "is_processing": False,
+            "process_type": None,
+        }
 
     if _is_script_approval(message, session_state):
         session_state["show_script_for_confirmation"] = False
