@@ -32,13 +32,20 @@ def generate_podcast_audio(
 
 
 def register_default_engines():
+    def windows_generator(script, output_path, language_code, silence_duration, voice_map):
+        from utils.text_to_audio_windows import create_podcast as windows_create_podcast
+
+        return windows_create_podcast(
+            script=script,
+            output_path=output_path,
+            silence_duration=silence_duration,
+        )
+
     def elevenlabs_generator(script, output_path, language_code, silence_duration, voice_map):
         from utils.text_to_audio_elevenslab import create_podcast as elevenlabs_create_podcast
 
         if voice_map is None:
-            voice_map = {1: "Rachel", 2: "Adam"}
-            if language_code == "hi":
-                voice_map = {1: "Rachel", 2: "Adam"}
+            voice_map = {1: "21m00Tcm4TlvDq8ikWAM", 2: "pNInz6obpgDQGcFmaJgB"}
         return elevenlabs_create_podcast(
             script=script,
             output_path=output_path,
@@ -79,6 +86,8 @@ def register_default_engines():
     register_tts_engine("elevenlabs", elevenlabs_generator)
     register_tts_engine("kokoro", kokoro_generator)
     register_tts_engine("openai", openai_generator)
+    if os.name == "nt":
+        register_tts_engine("windows", windows_generator)
 
 
 register_default_engines()

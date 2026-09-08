@@ -47,6 +47,7 @@ class PodcastAgentService:
         self.redis = Redis(connection_pool=self.redis_pool)
         self.use_celery = os.environ.get("PODCAST_AGENT_USE_CELERY", "0").lower() in {"1", "true", "yes"}
         self.executor = ThreadPoolExecutor(max_workers=int(os.environ.get("PODCAST_AGENT_WORKERS", 2)))
+        self.local_task_timeout_seconds = int(os.environ.get("PODCAST_AGENT_TASK_TIMEOUT_SECONDS", 180))
         self.local_tasks = {}
         self.local_session_tasks = {}
         self.local_lock = threading.Lock()
@@ -284,6 +285,36 @@ class PodcastAgentService:
                         return await self.get_session_state(request.session_id)
                     future = task_info["future"]
                     if not future.done():
+                        elapsed = time.time() - task_info["created_at"]
+                        if elapsed >= self.local_task_timeout_seconds:
+                            # A local provider can hang (for example while a
+                            # model is downloaded).  Release the Studio UI
+                            # instead of polling forever; the user can retry
+                            # after correcting the provider configuration.
+                            self._pop_local_task(task_id)
+                            message = (
+                                "Audio generation timed out before the TTS provider responded. "
+                                "Please retry; if it persists, check the configured TTS provider."
+                            )
+                            try:
+                                session = SessionService.get_session(request.session_id)
+                                session_state = session.get("state", {})
+                                session_state["stage"] = "error"
+                                session_state["audio_error"] = message
+                                session_state["show_audio_for_confirmation"] = False
+                                SessionService.save_session(request.session_id, session_state)
+                            except Exception as save_error:
+                                print(f"Error saving timed-out task state: {save_error}")
+                            return {
+                                "session_id": request.session_id,
+                                "response": message,
+                                "stage": "error",
+                                "session_state": "{}",
+                                "is_processing": False,
+                                "process_type": None,
+                                "task_id": None,
+                                "browser_recording_path": browser_recording_path,
+                            }
                         return {
                             "session_id": request.session_id,
                             "response": "Your request is still being processed.",

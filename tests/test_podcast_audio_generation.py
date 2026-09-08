@@ -101,7 +101,10 @@ class AudioGenerationTests(unittest.TestCase):
                                 result = audio_generate_agent.audio_generate_agent_run(DummyAgent())
 
                         self.assertEqual(len(calls), 2, "expected a fallback TTS engine call after silent audio was rejected")
-                        self.assertIn("openai", result.lower())
+                        self.assertTrue(
+                            "windows" in result.lower() or "openai" in result.lower(),
+                            "expected a usable local or hosted TTS fallback after silent audio was rejected",
+                        )
 
     def test_audio_generation_rejects_too_short_audio(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -168,6 +171,14 @@ class AudioGenerationTests(unittest.TestCase):
                 {"text": "Morgan is here.", "speaker": 2},
             ],
         )
+
+    def test_local_windows_engine_is_available_as_a_fallback(self):
+        with patch.object(audio_generate_agent.os, "name", "nt"):
+            with patch.dict(os.environ, {"PODCAST_STUDIO_TTS_FALLBACKS": "1"}, clear=False):
+                engines = audio_generate_agent._configured_tts_engines("elevenlabs")
+
+        self.assertEqual(engines[0], "elevenlabs")
+        self.assertIn("windows", engines)
 
     def test_openai_tts_uses_openai_api_key_when_available(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

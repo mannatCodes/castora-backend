@@ -6,6 +6,12 @@ import soundfile as sf
 from elevenlabs.client import ElevenLabs
 
 TEXT_TO_SPEECH_MODEL = "eleven_multilingual_v2"
+# Built-in ElevenLabs voices. Use IDs rather than display names: restricted
+# API keys commonly cannot list voices, but can still synthesize with these.
+DEFAULT_VOICE_MAP = {
+    1: "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    2: "pNInz6obpgDQGcFmaJgB",  # Adam
+}
 
 
 def create_silence_audio(silence_duration: float, sampling_rate: int) -> np.ndarray:
@@ -48,73 +54,30 @@ def text_to_speech_elevenlabs(
     client: ElevenLabs,
     text: str,
     speaker_id: int,
-    voice_map={1: "Rachel", 2: "Adam"},
+    voice_map: Optional[dict] = None,
     model_id: str = TEXT_TO_SPEECH_MODEL,
 ) -> Optional[Tuple[np.ndarray, int]]:
     if not text.strip():
         return None
+    voice_map = voice_map or DEFAULT_VOICE_MAP
     voice_name_or_id = voice_map.get(speaker_id)
     if not voice_name_or_id:
         print(f"No voice found for speaker_id {speaker_id}")
         return None
     try:
-        from pydub import AudioSegment
-
-        pydub_available = True
-    except ImportError:
-        pydub_available = False
-    try:
-        audio_generator = client.generate(
+        # Request PCM directly. This avoids ffmpeg/MP3 decoding failures and
+        # avoids the legacy name-to-voice lookup that needs voices_read.
+        audio_generator = client.text_to_speech.convert(
+            voice_id=voice_name_or_id,
             text=text,
-            voice=voice_name_or_id,
-            model=model_id,
-            stream=True,
+            model_id=model_id,
+            output_format="pcm_24000",
         )
-        audio_chunks = []
-        for chunk in audio_generator:
-            if chunk:
-                audio_chunks.append(chunk)
-        if not audio_chunks:
+        audio_data = b"".join(chunk for chunk in audio_generator if chunk)
+        if not audio_data:
             return None
-        audio_data = b"".join(audio_chunks)
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
-            temp_path = temp_file.name
-            temp_file.write(audio_data)
-        if pydub_available:
-            try:
-                audio_segment = AudioSegment.from_mp3(temp_path)
-                channels = audio_segment.channels
-                sample_width = audio_segment.sample_width
-                frame_rate = audio_segment.frame_rate
-                samples = np.array(audio_segment.get_array_of_samples())
-                if channels == 2:
-                    samples = samples.reshape(-1, 2).mean(axis=1)
-                max_possible_value = float(2 ** (8 * sample_width - 1))
-                samples = samples.astype(np.float32) / max_possible_value
-                os.unlink(temp_path)
-                return samples, frame_rate
-            except Exception as pydub_error:
-                print(f"Pydub processing failed: {pydub_error}")
-        try:
-            audio_np, samplerate = sf.read(temp_path)
-            os.unlink(temp_path)
-            return audio_np, samplerate
-        except Exception as _:
-            if pydub_available:
-                try:
-                    sound = AudioSegment.from_mp3(temp_path)
-                    wav_path = temp_path.replace(".mp3", ".wav")
-                    sound.export(wav_path, format="wav")
-
-                    audio_np, samplerate = sf.read(wav_path)
-                    os.unlink(temp_path)
-                    os.unlink(wav_path)
-                    return audio_np, samplerate
-                except Exception:
-                    pass
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-        return None
+        samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+        return (samples, 24_000) if samples.size else None
 
     except Exception as e:
         print(f"Error during ElevenLabs API call: {e}")
@@ -131,24 +94,21 @@ def create_podcast(
     sampling_rate: int = 24_000,
     lang_code: str = "en",
     elevenlabs_model: str = "eleven_multilingual_v2",
-    voice_map: dict = {1: "Rachel", 2: "Adam"},
+    voice_map: Optional[dict] = None,
     api_key: str = None,
 ) -> str:
     if not api_key:
-        print("Warning: Using hardcoded API key")
+        print("ElevenLabs API key is not configured")
+        return None
     try:
         client = ElevenLabs(api_key=api_key)
-        try:
-            voices = client.voices.get_all()
-            print(f"API connection successful. Found {len(voices)} available voices.")
-        except Exception as voice_error:
-            print(f"Warning: Could not retrieve voices: {voice_error}")
     except Exception as e:
         print(f"Fatal Error: Failed to initialize ElevenLabs client: {e}")
         return None
     output_path = os.path.abspath(output_path)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     generated_segments = []
+    voice_map = voice_map or DEFAULT_VOICE_MAP
     determined_sampling_rate = -1
     entries = script.entries if hasattr(script, "entries") else script
     for i, entry in enumerate(entries):

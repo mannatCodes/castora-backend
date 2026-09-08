@@ -383,17 +383,28 @@ def _extract_script_entries(script_data: Dict[str, Any]) -> List[Dict[str, Any]]
 
 
 def _configured_tts_engines(preferred_engine: str) -> List[str]:
-    preferred_engine = (preferred_engine or "kokoro").lower()
+    preferred_engine = (preferred_engine or ("windows" if os.name == "nt" else "elevenlabs")).lower()
     engines = [preferred_engine]
-    # Do not automatically fall back to Kokoro in a deployed web process: its
-    # model load can exhaust the service and restart the Studio mid-workflow.
+    # Kokoro downloads and initializes a sizeable local model on first use.
+    # It must be an explicit opt-in: otherwise an old saved session with
+    # ``tts_engine=kokoro`` can appear to process forever while the web worker
+    # is downloading/model-loading.
+    allow_kokoro = os.environ.get("PODCAST_STUDIO_ENABLE_KOKORO", "0").strip().lower() in {"1", "true", "yes", "on"}
     fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
     if fallback_enabled:
-        engines.extend(e for e in ["kokoro", "openai", "elevenlabs"] if e != preferred_engine)
+        fallback_order = ["windows", "openai", "elevenlabs"] if os.name == "nt" else ["openai", "elevenlabs"]
+        if allow_kokoro:
+            fallback_order.append("kokoro")
+        engines.extend(e for e in fallback_order if e != preferred_engine)
 
     configured = []
     for engine in engines:
         if engine in configured:
+            continue
+        if engine == "kokoro" and not allow_kokoro:
+            print("Skipping Kokoro TTS because PODCAST_STUDIO_ENABLE_KOKORO is not enabled")
+            continue
+        if engine == "windows" and os.name != "nt":
             continue
         if engine == "openai" and not load_api_key("OPENAI_API_KEY"):
             print("Skipping OpenAI TTS fallback because OPENAI_API_KEY is not configured")

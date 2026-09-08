@@ -183,7 +183,14 @@ INITIAL_SESSION_STATE = {
     # The Render web instance cannot reliably load Kokoro's local model.
     # Deployments use the configured hosted TTS provider. A failed provider
     # must be reported; it must never be represented as spoken podcast audio.
-    "tts_engine": os.environ.get("PODCAST_STUDIO_DEFAULT_TTS_ENGINE", "elevenlabs"),
+    # Windows SAPI is available without a model download during local Windows
+    # development.  In hosted environments default to the configured provider.
+    # This avoids silently selecting Kokoro, whose first use can download a
+    # large model and leave a Studio request stuck indefinitely.
+    "tts_engine": os.environ.get(
+        "PODCAST_STUDIO_DEFAULT_TTS_ENGINE",
+        "windows" if os.name == "nt" else "elevenlabs",
+    ),
 }
 
 STORAGE = SqliteStorage(
