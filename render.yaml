@@ -25,6 +25,14 @@ services:
           property: connectionString
       - key: GROQ_API_KEY
         sync: false
+      # Enables Google web search through Serper. Without it, Castora uses
+      # Google News first and only then falls back to the local RSS database.
+      - key: SERPER_API_KEY
+        sync: false
+      # Configure at least one speech provider. A Groq key creates scripts,
+      # but it cannot generate the final spoken audio file.
+      - key: OPENAI_API_KEY
+        sync: false
       - key: ELEVENSLAB_API_KEY
         sync: false
       # Standard spelling accepted by the audio provider. The backend also
@@ -38,11 +46,13 @@ services:
       - key: PODCAST_STUDIO_DEFAULT_TTS_ENGINE
         value: "elevenlabs"
       - key: PODCAST_STUDIO_TTS_FALLBACKS
-        value: "false"
+        value: "true"
       - key: PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO
         value: "false"
       - key: PODCAST_STUDIO_USE_AI_SCRIPT
         value: "true"
+      - key: PODCAST_STUDIO_FAST_SCRIPT
+        value: "false"
       - key: PODCAST_AGENT_USE_CELERY
         value: "true"
 

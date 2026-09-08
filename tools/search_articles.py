@@ -38,24 +38,25 @@ def search_articles(agent: Agent, terms: Union[str, List[str]]) -> str:
     Returns:
         A formatted string response with the search results
     """
-    print(f"Search Internal Articles terms: {terms}")
+    print(f"Search topic sources: {terms}")
     search_terms = _normalize_terms(terms)
     limit = 8
     db_path = get_tracking_db_path()
+    topic = " ".join(search_terms)
+    # Prefer current web results. The local RSS database remains available if
+    # Google and Google News are temporarily unreachable.
+    live_results = search_live_google_sources(topic, limit) or search_live_news_sources(topic, limit)
+    if live_results:
+        return (
+            "is_scrapping_required: False, "
+            f"Found {len(live_results)} live Google sources, "
+            f"{json.dumps(live_results, indent=2)} potential sources relevant to your topic."
+        )
     try:
         with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
             conn.row_factory = lambda cursor, row: {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
             results = execute_simple_search(conn, search_terms, limit)
             if not results:
-                live_results = search_live_google_sources(" ".join(search_terms), limit)
-                if not live_results:
-                    live_results = search_live_news_sources(" ".join(search_terms), limit)
-                if live_results:
-                    return (
-                        "is_scrapping_required: False, "
-                        f"Found {len(live_results)} live Google fallback sources, "
-                        f"{json.dumps(live_results, indent=2)} potential sources that might be relevant to your topic."
-                    )
                 return (
                     "is_scrapping_required: False, Found 0, [] potential sources. "
                     "The local article database and live Google fallback did not return relevant matches."
@@ -70,15 +71,6 @@ def search_articles(agent: Agent, terms: Union[str, List[str]]) -> str:
             return f"is_scrapping_required: False, Found {len(results)}, {json.dumps(results, indent=2)} potential sources from the local article database that might be relevant to your topic. Quality-check the text matches and ignore invalid results."
     except Exception as e:
         print(f"Error searching articles: {e}")
-        live_results = search_live_google_sources(" ".join(search_terms), limit)
-        if not live_results:
-            live_results = search_live_news_sources(" ".join(search_terms), limit)
-        if live_results:
-            return (
-                "is_scrapping_required: False, "
-                f"Found {len(live_results)} live Google fallback sources after a database error, "
-                f"{json.dumps(live_results, indent=2)} potential sources that might be relevant to your topic."
-            )
         return "I encountered a database error while searching, and live Google fallback did not return results."
 
 

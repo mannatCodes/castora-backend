@@ -488,19 +488,17 @@ def _prepare_sources_without_ai(session_id: str, topic: str) -> dict:
     topic = _clean_topic(topic)
     session = SessionService.get_session(session_id)
     session_state = session.get("state", INITIAL_SESSION_STATE)
-    results = _search_local_articles(topic)
-    local_content_is_sufficient = _has_sufficient_local_source_content(results)
-    fallback_notice = " I used the local article database because it has enough relevant material for this episode."
-
-    if not local_content_is_sufficient:
-        google_results = _search_live_google_sources(topic)
-        if google_results:
-            results = google_results
-            fallback_notice = " I searched Google live because the local article database did not have enough relevant content."
-
+    # A new podcast should use current web reporting first. The local RSS
+    # store is only a fallback, so an unrelated frequent topic cannot take
+    # over a user's requested episode.
+    results = _search_live_google_sources(topic)
+    fallback_notice = " I searched Google live for current sources."
     if not results:
         results = _search_live_news_sources(topic)
-        fallback_notice = " I searched Google News live because Google web search did not return relevant matches."
+        fallback_notice = " I searched Google News live for current sources."
+    if not results:
+        results = _search_local_articles(topic)
+        fallback_notice = " Live Google search was unavailable, so I used relevant local articles."
 
     if not results:
         slug = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-") or "topic"
@@ -560,15 +558,15 @@ def _prepare_sources_after_tool_failure(session_id: str, topic: str) -> dict:
         session_state = session.get("state", session_state)
     except Exception as search_error:
         print(f"Search agent fallback also failed: {search_error}")
-        results = _search_local_articles(topic)
-        if not _has_sufficient_local_source_content(results):
-            google_results = _search_live_google_sources(topic)
-            if google_results:
-                results = google_results
-                fallback_notice = " I searched Google live because the local article database did not have enough relevant content."
+        results = _search_live_google_sources(topic)
+        if results:
+            fallback_notice = " I searched Google live for current sources."
         if not results:
             results = _search_live_news_sources(topic)
-            fallback_notice = " I searched Google News live because Google web search did not return relevant matches."
+            fallback_notice = " I searched Google News live for current sources."
+        if not results:
+            results = _search_local_articles(topic)
+            fallback_notice = " Live Google search was unavailable, so I used relevant local articles."
         if not results:
             raise search_error
         session_state["search_results"] = results

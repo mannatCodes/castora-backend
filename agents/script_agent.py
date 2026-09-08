@@ -130,7 +130,9 @@ def _env_flag(name: str, default: str = "0") -> bool:
 
 
 def _should_use_ai_script() -> bool:
-    if _env_flag("PODCAST_STUDIO_FAST_SCRIPT", "1"):
+    # Fast local drafts bypass the configured AI script pipeline entirely.
+    # Keep them opt-in; production enables PODCAST_STUDIO_USE_AI_SCRIPT.
+    if _env_flag("PODCAST_STUDIO_FAST_SCRIPT", "0"):
         return False
     return _env_flag("PODCAST_STUDIO_USE_AI_SCRIPT", "0")
 

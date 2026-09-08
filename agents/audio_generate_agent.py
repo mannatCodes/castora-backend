@@ -472,7 +472,10 @@ def audio_generate_agent_run(agent: Agent) -> str:
             if use_real_tts:
                 engines_to_try = _configured_tts_engines(tts_engine)
                 if not engines_to_try:
-                    error_msg = "Failed to generate podcast audio: no configured TTS engine is available. Configure a working TTS provider and try again."
+                    error_msg = (
+                        "Failed to generate podcast audio: this deployment has no TTS API key. "
+                        "Set ELEVENLABS_API_KEY (or OPENAI_API_KEY) in the deployment environment, then retry."
+                    )
                     return fail_audio_generation(error_msg)
                 for engine in engines_to_try:
                     print(f"Trying TTS engine: {engine}")
