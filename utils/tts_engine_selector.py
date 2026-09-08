@@ -9,6 +9,21 @@ TTS_OPENAI_MODEL = "gpt-4o-mini-tts"
 TTS_ELEVENLABS_MODEL = "eleven_multilingual_v2"
 
 
+def _elevenlabs_voice_map() -> dict:
+    """Use account-owned voices when configured.
+
+    ElevenLabs free accounts cannot synthesize with Voice Library IDs. A
+    Voice Design/owned voice ID works on the account that created it. One
+    voice is enough for a podcast; it is used for both speakers if a second
+    ID is not supplied.
+    """
+    first_voice = os.environ.get("ELEVENLABS_VOICE_ID_1", "").strip()
+    second_voice = os.environ.get("ELEVENLABS_VOICE_ID_2", "").strip()
+    if first_voice:
+        return {1: first_voice, 2: second_voice or first_voice}
+    return {1: "21m00Tcm4TlvDq8ikWAM", 2: "pNInz6obpgDQGcFmaJgB"}
+
+
 def register_tts_engine(name: str, generator_func: Callable):
     _TTS_ENGINES[name.lower()] = generator_func
 
@@ -69,7 +84,7 @@ def register_default_engines():
         )
 
         if voice_map is None:
-            voice_map = {1: "21m00Tcm4TlvDq8ikWAM", 2: "pNInz6obpgDQGcFmaJgB"}
+            voice_map = _elevenlabs_voice_map()
         result = elevenlabs_create_podcast(
             script=script,
             output_path=output_path,

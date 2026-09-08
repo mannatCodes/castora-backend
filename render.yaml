@@ -39,6 +39,12 @@ services:
       # supports the legacy ELEVENSLAB_API_KEY above for existing deployments.
       - key: ELEVENLABS_API_KEY
         sync: false
+      # On ElevenLabs' free API plan, use IDs from voices you created in My
+      # Voices / Voice Design. Voice Library IDs are rejected with HTTP 402.
+      - key: ELEVENLABS_VOICE_ID_1
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_2
+        sync: false
       - key: PODCAST_STUDIO_USE_REAL_TTS
         value: "true"
       # A hosted engine avoids loading the resource-heavy local Kokoro model

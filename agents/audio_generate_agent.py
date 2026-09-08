@@ -487,7 +487,14 @@ def audio_generate_agent_run(agent: Agent) -> str:
                         language_code=language_code,
                     )
                     if full_audio_path and not _is_valid_audio_file(full_audio_path, min_duration_seconds=min_duration):
-                        print(f"Generated audio file from {engine} was invalid or silent: {full_audio_path}")
+                        duration = _get_audio_duration_seconds(full_audio_path)
+                        provider_error = (
+                            f"generated audio was rejected: "
+                            f"{duration if duration is not None else 'unknown'} seconds; "
+                            f"minimum required is {min_duration:.1f} seconds"
+                        )
+                        print(f"Generated audio file from {engine} was invalid or silent: {full_audio_path}. {provider_error}")
+                        session_state.setdefault("tts_errors", []).append(f"{engine}: {provider_error}")
                         try:
                             os.remove(full_audio_path)
                         except Exception:
