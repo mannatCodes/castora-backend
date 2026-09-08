@@ -1,6 +1,6 @@
 from agno.agent import Agent
 from datetime import datetime
-from db.config import get_podcasts_db_path, DB_PATH
+from db.config import get_podcasts_db_path
 import os
 import sqlite3
 import json
@@ -47,10 +47,15 @@ def _save_podcast_to_database_sync(session_state: dict) -> tuple[bool, str, int]
                     sources.append(source["link"])
         generated_script["sources"] = sources
         db_path = get_podcasts_db_path()
-        db_directory = DB_PATH
-        os.makedirs(db_directory, exist_ok=True)
+        # get_podcasts_db_path is rooted at CASTORA_RUNTIME_DIR on Render.
+        # Never create or use the relative ./databases directory here: that
+        # directory disappears on a deploy/restart and causes saved episodes
+        # to vanish from the Podcasts page.
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)
+        conn.execute("PRAGMA busy_timeout = 10000")
+        conn.execute("PRAGMA journal_mode = WAL")
         content_json = json.dumps(generated_script)
         sources_json = json.dumps(sources) if sources else None
         current_time = datetime.now().isoformat()
@@ -192,9 +197,14 @@ def mark_session_finished(agent: Agent) -> str:
     session = SessionService.get_session(session_id)
     session_state = session["state"]
     
-    # Check if the podcast has been generated already
+    # Do not insert twice if a completed session is approved again.
     if session_state.get("podcast_id"):
-        return "Podcast has already been finalized and saved to database."
+        session_state["podcast_generated"] = True
+        session_state["finished"] = True
+        session_state["stage"] = "complete"
+        session_state["save_status"] = "saved"
+        SessionService.save_session(session_id, session_state)
+        return "Podcast has been finalized and is safely saved in the Podcasts section."
     
     # Validate that we have at least the script and audio
     missing_components = []
@@ -211,30 +221,37 @@ def mark_session_finished(agent: Agent) -> str:
     if not session_state.get("banner_url"):
         print(f"[WARNING] No banner generated for session {session_id}, proceeding without banner")
     
-    # Mark as finished and complete
-    session_state["finished"] = True
-    session_state["stage"] = "complete"
-    
     # Try to save podcast to database
     try:
         success, message, podcast_id = _save_podcast_to_database_sync(session_state)
         if success and podcast_id:
             session_state["podcast_id"] = podcast_id
             session_state["podcast_generated"] = True
+            session_state["finished"] = True
+            session_state["stage"] = "complete"
+            session_state["save_status"] = "saved"
             SessionService.save_session(session_id, session_state)
             print(f"[SUCCESS] Podcast finalized with ID: {podcast_id}")
             return f"Your podcast has been created successfully! You can now find it in the Podcasts section. {message}"
         else:
-            # Still mark as complete even if saving failed, but log the error
-            session_state["podcast_generated"] = True
+            # Do not claim a podcast is saved when it only exists in the live
+            # session. Keep it recoverable and make the failure visible.
+            session_state["podcast_generated"] = False
+            session_state["finished"] = False
+            session_state["stage"] = "audio"
+            session_state["save_status"] = "failed"
+            session_state["save_error"] = message
             SessionService.save_session(session_id, session_state)
             print(f"[ERROR] Failed to save podcast to database: {message}")
-            return f"Podcast completed but had an issue saving to database: {message}. You can still access it during this session."
+            return f"Podcast was not saved: {message}. Please retry after the database is available."
     except Exception as e:
-        # Even if there's an exception, mark session as finished
         print(f"[ERROR] Exception during podcast finalization: {e}")
         import traceback
         traceback.print_exc()
-        session_state["podcast_generated"] = True
+        session_state["podcast_generated"] = False
+        session_state["finished"] = False
+        session_state["stage"] = "audio"
+        session_state["save_status"] = "failed"
+        session_state["save_error"] = str(e)
         SessionService.save_session(session_id, session_state)
-        return f"Your podcast is ready, though there was an issue finalizing the save: {str(e)}"
+        return f"Podcast was not saved: {str(e)}. Please retry after the database is available."

@@ -18,7 +18,9 @@ env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 APP_ROOT = Path(__file__).resolve().parent
-RUNTIME_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", "/tmp/castora" if os.environ.get("VERCEL") else APP_ROOT))
+_is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
+_default_runtime_root = "/tmp/castora" if os.environ.get("VERCEL") else ("/var/data" if _is_render else APP_ROOT)
+RUNTIME_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", _default_runtime_root))
 PODCAST_ROOT = RUNTIME_ROOT / "podcasts"
 PODCAST_AUDIO_DIR = PODCAST_ROOT / "audio"
 PODCAST_IMAGES_DIR = PODCAST_ROOT / "images"

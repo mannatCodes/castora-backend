@@ -4,12 +4,14 @@ from dotenv import load_dotenv
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
-APP_ROOT = Path(
-    os.environ.get(
-        "CASTORA_RUNTIME_DIR",
-        "/tmp/castora" if os.environ.get("VERCEL") else Path(__file__).resolve().parent.parent,
-    )
+_is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
+_default_runtime_root = "/tmp/castora" if os.environ.get("VERCEL") else (
+    "/var/data" if _is_render else Path(__file__).resolve().parent.parent
 )
+# Render's application filesystem is ephemeral.  All databases and podcast
+# assets must resolve below its mounted disk, even if the explicit variable is
+# accidentally omitted from the dashboard configuration.
+APP_ROOT = Path(os.environ.get("CASTORA_RUNTIME_DIR", _default_runtime_root))
 DEFAULT_DB_PATHS = {
     "sources_db": "databases/sources.db",
     "tracking_db": "databases/feed_tracking.db",
