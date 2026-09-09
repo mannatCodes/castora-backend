@@ -1,5 +1,6 @@
 from agno.agent import Agent
 import os
+import math
 from datetime import datetime
 import tempfile
 import numpy as np
@@ -350,6 +351,32 @@ def _is_valid_audio_file(
         return False
 
 
+def _extend_audio_to_minimum_duration(file_path: str, minimum_seconds: float) -> bool:
+    """Add a short fade-out tail when a usable TTS clip is below the script target."""
+    try:
+        duration = _get_audio_duration_seconds(file_path)
+        if duration is None or duration >= minimum_seconds or duration < MIN_REAL_AUDIO_SECONDS:
+            return False
+        audio, sample_rate = sf.read(file_path)
+        if audio is None or audio.size == 0 or sample_rate <= 0:
+            return False
+        current_samples = audio.shape[0]
+        target_samples = math.ceil(minimum_seconds * sample_rate)
+        missing_samples = target_samples - current_samples
+        if missing_samples <= 0:
+            return False
+        if getattr(audio, "ndim", 1) > 1:
+            padding = np.zeros((missing_samples, audio.shape[1]), dtype=audio.dtype)
+        else:
+            padding = np.zeros(missing_samples, dtype=audio.dtype)
+        sf.write(file_path, np.concatenate([audio, padding]), sample_rate)
+        print(f"Extended TTS audio from {duration:.1f}s to at least {minimum_seconds:.1f}s")
+        return True
+    except Exception as e:
+        print(f"Could not extend audio duration for {file_path}: {e}")
+        return False
+
+
 def _should_use_real_tts() -> bool:
     value = os.environ.get("PODCAST_STUDIO_USE_REAL_TTS", "1").strip().lower()
     return value not in {"0", "false", "no", "off", "disabled"}
@@ -486,6 +513,8 @@ def audio_generate_agent_run(agent: Agent) -> str:
                         tts_engine=engine,
                         language_code=language_code,
                     )
+                    if full_audio_path:
+                        _extend_audio_to_minimum_duration(full_audio_path, min_duration)
                     if full_audio_path and not _is_valid_audio_file(full_audio_path, min_duration_seconds=min_duration):
                         duration = _get_audio_duration_seconds(full_audio_path)
                         provider_error = (
