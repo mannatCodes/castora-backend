@@ -1,5 +1,6 @@
 from agno.agent import Agent
 import os
+from copy import deepcopy
 from datetime import datetime
 import tempfile
 import numpy as np
@@ -384,15 +385,33 @@ def _extract_script_entries(script_data: Dict[str, Any]) -> List[Dict[str, Any]]
 
 def _configured_tts_engines(preferred_engine: str) -> List[str]:
     preferred_engine = (preferred_engine or "edge").lower()
-    engines = [preferred_engine]
     # Kokoro downloads and initializes a sizeable local model on first use.
     # It must be an explicit opt-in: otherwise an old saved session with
     # ``tts_engine=kokoro`` can appear to process forever while the web worker
     # is downloading/model-loading.
     allow_kokoro = os.environ.get("PODCAST_STUDIO_ENABLE_KOKORO", "0").strip().lower() in {"1", "true", "yes", "on"}
     fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
+    prefer_hosted = os.environ.get("PODCAST_STUDIO_PREFER_HOSTED_TTS", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+    # Windows SAPI is often unavailable to a web/worker process (for example,
+    # when it runs without an interactive desktop).  Do not make a valid
+    # hosted provider wait behind that known-unreliable local option. Existing
+    # sessions commonly have ``windows`` persisted as their selected engine,
+    # so this also repairs those sessions without requiring users to restart
+    # the podcast workflow.
+    if preferred_engine == "windows" and prefer_hosted:
+        if load_api_key("ELEVENLABS_API_KEY"):
+            preferred_engine = "elevenlabs"
+        elif load_api_key("OPENAI_API_KEY"):
+            preferred_engine = "openai"
+
+    engines = [preferred_engine]
     if fallback_enabled:
-        fallback_order = ["windows", "elevenlabs"] if os.name == "nt" else ["elevenlabs"]
+        fallback_order = (
+            ["elevenlabs", "openai", "windows"]
+            if os.name == "nt"
+            else ["elevenlabs", "openai"]
+        )
         engines.extend(e for e in fallback_order if e != preferred_engine)
 
     configured = []
@@ -439,7 +458,12 @@ def audio_generate_agent_run(agent: Agent) -> str:
         print(message)
         return message
 
-    script_data = session_state.get("generated_script", {})
+    # Banner approval may be retried after an interrupted worker update.  Use
+    # the script snapshot taken at approval to preserve the user-reviewed
+    # content instead of reporting that no script exists.
+    script_data = session_state.get("generated_script") or session_state.get("approved_script", {})
+    if not session_state.get("generated_script") and script_data:
+        session_state["generated_script"] = deepcopy(script_data)
     if not script_data or (isinstance(script_data, dict) and not script_data.get("sections")):
         error_msg = "Cannot generate audio: No podcast script data found. Please generate a script first."
         return fail_audio_generation(error_msg)

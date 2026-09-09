@@ -32,6 +32,7 @@ import traceback
 import sqlite3
 import re
 import requests
+from copy import deepcopy
 from types import SimpleNamespace
 from db.config import get_tracking_db_path
 
@@ -661,6 +662,10 @@ def _handle_stage_approval_directly(session_id: str, message: str, session_state
         }
 
     if _is_script_approval(message, session_state):
+        # Keep an approved copy through the image-review step.  The banner and
+        # audio tools update the same session record and a failed/retried tool
+        # must not leave the following approval without the script it needs.
+        session_state["approved_script"] = deepcopy(session_state["generated_script"])
         session_state["show_script_for_confirmation"] = False
         session_state["stage"] = "banner_generation"
         SessionService.save_session(session_id, session_state)
@@ -679,6 +684,25 @@ def _handle_stage_approval_directly(session_id: str, message: str, session_state
         }
 
     if _is_banner_approval(message, session_state):
+        # Recover the approved draft if a banner operation or an older session
+        # update cleared generated_script.  This makes banner approval safe to
+        # retry and prevents audio generation from failing with a misleading
+        # "generate a script first" message.
+        if not session_state.get("generated_script") and session_state.get("approved_script"):
+            session_state["generated_script"] = deepcopy(session_state["approved_script"])
+        if not session_state.get("generated_script"):
+            session_state["stage"] = "script"
+            session_state["show_script_for_confirmation"] = True
+            session_state["show_banner_for_confirmation"] = False
+            SessionService.save_session(session_id, session_state)
+            return {
+                "session_id": session_id,
+                "response": "The approved script is unavailable. Please generate and approve the script before approving the banner.",
+                "stage": "script",
+                "session_state": json.dumps(session_state),
+                "is_processing": False,
+                "process_type": None,
+            }
         session_state["show_banner_for_confirmation"] = False
         session_state["stage"] = "audio_generation"
         SessionService.save_session(session_id, session_state)

@@ -180,6 +180,22 @@ class AudioGenerationTests(unittest.TestCase):
         self.assertEqual(engines[0], "elevenlabs")
         self.assertIn("windows", engines)
 
+    def test_windows_session_prefers_configured_hosted_tts(self):
+        with patch.object(audio_generate_agent.os, "name", "nt"):
+            with patch.dict(
+                os.environ,
+                {
+                    "PODCAST_STUDIO_TTS_FALLBACKS": "1",
+                    "PODCAST_STUDIO_PREFER_HOSTED_TTS": "1",
+                    "ELEVENLABS_API_KEY": "test-elevenlabs-key",
+                },
+                clear=False,
+            ):
+                engines = audio_generate_agent._configured_tts_engines("windows")
+
+        self.assertEqual(engines[0], "elevenlabs")
+        self.assertIn("windows", engines)
+
     def test_openai_tts_uses_openai_api_key_when_available(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = os.path.join(tmp_dir, "podcast.wav")
