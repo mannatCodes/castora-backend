@@ -409,6 +409,44 @@ def _extract_script_entries(script_data: Dict[str, Any]) -> List[Dict[str, Any]]
     return script_entries
 
 
+def _expand_script_with_fresh_articles(
+    script_data: Dict[str, Any],
+    topic: str,
+    language_name: str,
+) -> Optional[Dict[str, Any]]:
+    """Build one longer script from fresh Google-News-prioritized sources."""
+    try:
+        from tools.pipeline.search_agent import search_agent_run
+        from tools.pipeline.scrape_agent import scrape_agent_run
+        from tools.pipeline.script_agent import script_agent_run
+
+        query = f"{topic} latest news and developments"
+        search_results = search_agent_run(query) or []
+        if not search_results:
+            print("No fresh articles found for audio expansion")
+            return None
+        scraped_results = scrape_agent_run(query, search_results) or []
+        confirmed_results = [
+            result
+            for result in scraped_results
+            if result.get("full_text") and len(result["full_text"].strip()) > 100
+        ]
+        if not confirmed_results:
+            print("Fresh articles did not contain enough content for audio expansion")
+            return None
+        expanded_script = script_agent_run(
+            query=f"{topic}. Expand the episode with these additional current articles.",
+            search_results=confirmed_results,
+            language_name=language_name,
+        )
+        if expanded_script and expanded_script.get("sections"):
+            print(f"Expanded podcast script with {len(confirmed_results)} fresh articles")
+            return expanded_script
+    except Exception as e:
+        print(f"Fresh article audio expansion failed: {e}")
+    return None
+
+
 def _configured_tts_engines(preferred_engine: str) -> List[str]:
     preferred_engine = (preferred_engine or ("windows" if os.name == "nt" else "elevenlabs")).lower()
     engines = [preferred_engine]
@@ -497,6 +535,7 @@ def audio_generate_agent_run(agent: Agent) -> str:
             use_real_tts = _should_use_real_tts()
             min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
             print(f"Script has {len(script_entries)} dialog entries; requiring at least {min_duration:.1f}s of generated audio")
+            expanded_script = False
             if use_real_tts:
                 engines_to_try = _configured_tts_engines(tts_engine)
                 if not engines_to_try:
@@ -514,7 +553,39 @@ def audio_generate_agent_run(agent: Agent) -> str:
                         language_code=language_code,
                     )
                     if full_audio_path:
-                        _extend_audio_to_minimum_duration(full_audio_path, min_duration)
+                        generated_duration = _get_audio_duration_seconds(full_audio_path)
+                        if (
+                            generated_duration is not None
+                            and MIN_REAL_AUDIO_SECONDS <= generated_duration < min_duration
+                            and not expanded_script
+                        ):
+                            topic = session_state.get("podcast_info", {}).get("topic") or podcast_title
+                            fresh_script = _expand_script_with_fresh_articles(
+                                script_data=script_data,
+                                topic=topic,
+                                language_name=language_name,
+                            )
+                            if fresh_script:
+                                fresh_entries = _extract_script_entries(fresh_script)
+                                if fresh_entries:
+                                    script_data = fresh_script
+                                    script_entries = fresh_entries
+                                    session_state["generated_script"] = fresh_script
+                                    SessionService.save_session(session_id, session_state)
+                                    min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
+                                    expanded_script = True
+                                    try:
+                                        os.remove(full_audio_path)
+                                    except OSError:
+                                        pass
+                                    full_audio_path = generate_podcast_audio(
+                                        script=script_entries,
+                                        output_path=audio_path,
+                                        tts_engine=engine,
+                                        language_code=language_code,
+                                    )
+                        if full_audio_path:
+                            _extend_audio_to_minimum_duration(full_audio_path, min_duration)
                     if full_audio_path and not _is_valid_audio_file(full_audio_path, min_duration_seconds=min_duration):
                         duration = _get_audio_duration_seconds(full_audio_path)
                         provider_error = (
