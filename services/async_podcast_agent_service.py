@@ -167,17 +167,8 @@ class PodcastAgentService:
 
     async def create_session(self, request=None):
         if request and request.session_id:
-            session_id = request.session_id
-            try:
-                db_path = get_agent_session_db_path()
-                async with aiosqlite.connect(db_path) as conn:
-                    async with conn.execute("SELECT 1 FROM podcast_sessions WHERE session_id = ?", (session_id,)) as cursor:
-                        row = await cursor.fetchone()
-                        exists = row is not None
-                if exists:
-                    return {"session_id": session_id}
-            except Exception as e:
-                print(f"Error checking session existence: {e}")
+            return {"session_id": request.session_id}
+
         new_session_id = str(uuid.uuid4())
         return {"session_id": new_session_id}
 
@@ -608,27 +599,37 @@ class PodcastAgentService:
 
     async def get_session_history(self, session_id: str):
         try:
+            formatted_messages = []
+            session_state = {}
+
+            # Get workflow state from internal_sessions.db.
+            session = SessionService.get_session(session_id)
+            session_state = session.get("state", {}) or {}
+
+            # Chat messages are stored in podcast_sessions.
             db_path = get_agent_session_db_path()
             async with aiosqlite.connect(db_path) as conn:
-                conn.row_factory = lambda cursor, row: {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
+                conn.row_factory = lambda cursor, row: {
+                    col[0]: row[idx]
+                    for idx, col in enumerate(cursor.description)
+                }
+
                 async with conn.execute(
-                    """
-                    select name from sqlite_master
-                    where type='table' and name='podcast_sessions'
-                    """
+                    "SELECT memory, session_data FROM podcast_sessions WHERE session_id = ?",
+                    (session_id,),
                 ) as cursor:
-                    table = await cursor.fetchone()
-                    if not table:
-                        return {"session_id": session_id, "messages": [], "state": "{}", "is_processing": False, "process_type": None}
-                async with conn.execute("SELECT memory, session_data FROM podcast_sessions WHERE session_id = ?", (session_id,)) as cursor:
                     row = await cursor.fetchone()
-                if not row:
-                    return {"session_id": session_id, "messages": [], "state": "{}", "is_processing": False, "process_type": None}
-                formatted_messages, session_state = await self._get_chat_messages(row, session_id)
+
+                if row:
+                    formatted_messages, _ = await self._get_chat_messages(
+                        row, session_id
+                    )
 
             task_id = await self.get_active_task(session_id)
             browser_recording_path = self._browser_recording(session_id)
+
             ready_response = self._ready_state_response(session_id)
+
             if ready_response:
                 return {
                     "session_id": session_id,
@@ -639,6 +640,7 @@ class PodcastAgentService:
                     "task_id": None,
                     "browser_recording_path": browser_recording_path,
                 }
+
             is_processing = bool(task_id)
             process_type = "chat" if is_processing else None
 
@@ -648,11 +650,17 @@ class PodcastAgentService:
                 "state": json.dumps(session_state),
                 "is_processing": is_processing,
                 "process_type": process_type,
-                "task_id": task_id if task_id and is_processing else None,
+                "task_id": task_id if is_processing else None,
                 "browser_recording_path": browser_recording_path,
             }
+
         except Exception as e:
-            return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"error": f"Error retrieving session history: {str(e)}"})
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "error": f"Error retrieving session history: {str(e)}"
+                },
+            )
 
     async def get_supported_languages(self):
         return {"languages": AVAILABLE_LANGS}
