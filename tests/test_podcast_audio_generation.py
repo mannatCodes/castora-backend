@@ -178,6 +178,7 @@ class AudioGenerationTests(unittest.TestCase):
                 engines = audio_generate_agent._configured_tts_engines("elevenlabs")
 
         self.assertEqual(engines[0], "elevenlabs")
+        self.assertIn("edge", engines)
         self.assertIn("windows", engines)
 
     def test_windows_session_prefers_configured_hosted_tts(self):
@@ -194,6 +195,7 @@ class AudioGenerationTests(unittest.TestCase):
                 engines = audio_generate_agent._configured_tts_engines("windows")
 
         self.assertEqual(engines[0], "elevenlabs")
+        self.assertIn("edge", engines)
         self.assertIn("windows", engines)
 
     def test_openai_tts_uses_openai_api_key_when_available(self):

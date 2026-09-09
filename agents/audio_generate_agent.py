@@ -408,9 +408,13 @@ def _configured_tts_engines(preferred_engine: str) -> List[str]:
     engines = [preferred_engine]
     if fallback_enabled:
         fallback_order = (
-            ["elevenlabs", "openai", "windows"]
+            # Edge TTS does not consume ElevenLabs/OpenAI credits and is the
+            # recovery path for provider quota errors. Keep Windows last: its
+            # SAPI service is commonly unavailable to a non-interactive web
+            # worker.
+            ["elevenlabs", "openai", "edge", "windows"]
             if os.name == "nt"
-            else ["elevenlabs", "openai"]
+            else ["elevenlabs", "openai", "edge"]
         )
         engines.extend(e for e in fallback_order if e != preferred_engine)
 
