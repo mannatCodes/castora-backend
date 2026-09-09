@@ -1,6 +1,5 @@
 from agno.agent import Agent
 import os
-import math
 from datetime import datetime
 import tempfile
 import numpy as np
@@ -24,7 +23,6 @@ OUTRO_MUSIC_FILE = os.path.join(PODCAST_MUSIC_FOLDER, "intro_audio.mp3")
 WORDS_PER_MINUTE = 155
 MIN_EXPECTED_DURATION_RATIO = 0.45
 MIN_REAL_AUDIO_SECONDS = 8.0
-MAX_AUDIO_DURATION_SECONDS = 150.0
 
 
 def resample_audio_scipy(audio, original_sr, target_sr):
@@ -352,50 +350,6 @@ def _is_valid_audio_file(
         return False
 
 
-def _extend_audio_to_minimum_duration(file_path: str, minimum_seconds: float) -> bool:
-    """Add a short fade-out tail when a usable TTS clip is below the script target."""
-    try:
-        duration = _get_audio_duration_seconds(file_path)
-        if duration is None or duration >= minimum_seconds or duration < MIN_REAL_AUDIO_SECONDS:
-            return False
-        audio, sample_rate = sf.read(file_path)
-        if audio is None or audio.size == 0 or sample_rate <= 0:
-            return False
-        current_samples = audio.shape[0]
-        target_samples = math.ceil(minimum_seconds * sample_rate)
-        missing_samples = target_samples - current_samples
-        if missing_samples <= 0:
-            return False
-        if getattr(audio, "ndim", 1) > 1:
-            padding = np.zeros((missing_samples, audio.shape[1]), dtype=audio.dtype)
-        else:
-            padding = np.zeros(missing_samples, dtype=audio.dtype)
-        sf.write(file_path, np.concatenate([audio, padding]), sample_rate)
-        print(f"Extended TTS audio from {duration:.1f}s to at least {minimum_seconds:.1f}s")
-        return True
-    except Exception as e:
-        print(f"Could not extend audio duration for {file_path}: {e}")
-        return False
-
-
-def _limit_audio_duration(file_path: str, maximum_seconds: float = MAX_AUDIO_DURATION_SECONDS) -> bool:
-    """Trim generated audio so podcast files never exceed the product limit."""
-    try:
-        duration = _get_audio_duration_seconds(file_path)
-        if duration is None or duration <= maximum_seconds:
-            return False
-        audio, sample_rate = sf.read(file_path)
-        if audio is None or audio.size == 0 or sample_rate <= 0:
-            return False
-        target_samples = int(maximum_seconds * sample_rate)
-        sf.write(file_path, audio[:target_samples], sample_rate)
-        print(f"Trimmed TTS audio from {duration:.1f}s to {maximum_seconds:.1f}s")
-        return True
-    except Exception as e:
-        print(f"Could not limit audio duration for {file_path}: {e}")
-        return False
-
-
 def _should_use_real_tts() -> bool:
     value = os.environ.get("PODCAST_STUDIO_USE_REAL_TTS", "1").strip().lower()
     return value not in {"0", "false", "no", "off", "disabled"}
@@ -428,46 +382,8 @@ def _extract_script_entries(script_data: Dict[str, Any]) -> List[Dict[str, Any]]
     return script_entries
 
 
-def _expand_script_with_fresh_articles(
-    script_data: Dict[str, Any],
-    topic: str,
-    language_name: str,
-) -> Optional[Dict[str, Any]]:
-    """Build one longer script from fresh Google-News-prioritized sources."""
-    try:
-        from tools.pipeline.search_agent import search_agent_run
-        from tools.pipeline.scrape_agent import scrape_agent_run
-        from tools.pipeline.script_agent import script_agent_run
-
-        query = f"{topic} latest news and developments"
-        search_results = search_agent_run(query) or []
-        if not search_results:
-            print("No fresh articles found for audio expansion")
-            return None
-        scraped_results = scrape_agent_run(query, search_results) or []
-        confirmed_results = [
-            result
-            for result in scraped_results
-            if result.get("full_text") and len(result["full_text"].strip()) > 100
-        ]
-        if not confirmed_results:
-            print("Fresh articles did not contain enough content for audio expansion")
-            return None
-        expanded_script = script_agent_run(
-            query=f"{topic}. Expand the episode with these additional current articles.",
-            search_results=confirmed_results,
-            language_name=language_name,
-        )
-        if expanded_script and expanded_script.get("sections"):
-            print(f"Expanded podcast script with {len(confirmed_results)} fresh articles")
-            return expanded_script
-    except Exception as e:
-        print(f"Fresh article audio expansion failed: {e}")
-    return None
-
-
 def _configured_tts_engines(preferred_engine: str) -> List[str]:
-    preferred_engine = (preferred_engine or ("windows" if os.name == "nt" else "elevenlabs")).lower()
+    preferred_engine = (preferred_engine or "kokoro").lower()
     engines = [preferred_engine]
     # Kokoro downloads and initializes a sizeable local model on first use.
     # It must be an explicit opt-in: otherwise an old saved session with
@@ -476,7 +392,7 @@ def _configured_tts_engines(preferred_engine: str) -> List[str]:
     allow_kokoro = os.environ.get("PODCAST_STUDIO_ENABLE_KOKORO", "0").strip().lower() in {"1", "true", "yes", "on"}
     fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
     if fallback_enabled:
-        fallback_order = ["windows", "openai", "elevenlabs"] if os.name == "nt" else ["openai", "elevenlabs"]
+        fallback_order = ["windows", "elevenlabs"] if os.name == "nt" else ["elevenlabs"]
         if allow_kokoro:
             fallback_order.append("kokoro")
         engines.extend(e for e in fallback_order if e != preferred_engine)
@@ -552,12 +468,8 @@ def audio_generate_agent_run(agent: Agent) -> str:
             print(f"Generating podcast audio using {tts_engine} TTS engine in {language_name} language")
             full_audio_path = None
             use_real_tts = _should_use_real_tts()
-            min_duration = min(
-                _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO,
-                MAX_AUDIO_DURATION_SECONDS,
-            )
+            min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
             print(f"Script has {len(script_entries)} dialog entries; requiring at least {min_duration:.1f}s of generated audio")
-            expanded_script = False
             if use_real_tts:
                 engines_to_try = _configured_tts_engines(tts_engine)
                 if not engines_to_try:
@@ -574,44 +486,6 @@ def audio_generate_agent_run(agent: Agent) -> str:
                         tts_engine=engine,
                         language_code=language_code,
                     )
-                    if full_audio_path:
-                        generated_duration = _get_audio_duration_seconds(full_audio_path)
-                        if (
-                            generated_duration is not None
-                            and MIN_REAL_AUDIO_SECONDS <= generated_duration < min_duration
-                            and not expanded_script
-                        ):
-                            topic = session_state.get("podcast_info", {}).get("topic") or podcast_title
-                            fresh_script = _expand_script_with_fresh_articles(
-                                script_data=script_data,
-                                topic=topic,
-                                language_name=language_name,
-                            )
-                            if fresh_script:
-                                fresh_entries = _extract_script_entries(fresh_script)
-                                if fresh_entries:
-                                    script_data = fresh_script
-                                    script_entries = fresh_entries
-                                    session_state["generated_script"] = fresh_script
-                                    SessionService.save_session(session_id, session_state)
-                                    min_duration = min(
-                                        _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO,
-                                        MAX_AUDIO_DURATION_SECONDS,
-                                    )
-                                    expanded_script = True
-                                    try:
-                                        os.remove(full_audio_path)
-                                    except OSError:
-                                        pass
-                                    full_audio_path = generate_podcast_audio(
-                                        script=script_entries,
-                                        output_path=audio_path,
-                                        tts_engine=engine,
-                                        language_code=language_code,
-                                    )
-                        if full_audio_path:
-                            _limit_audio_duration(full_audio_path)
-                            _extend_audio_to_minimum_duration(full_audio_path, min_duration)
                     if full_audio_path and not _is_valid_audio_file(full_audio_path, min_duration_seconds=min_duration):
                         duration = _get_audio_duration_seconds(full_audio_path)
                         provider_error = (
