@@ -24,6 +24,7 @@ OUTRO_MUSIC_FILE = os.path.join(PODCAST_MUSIC_FOLDER, "intro_audio.mp3")
 WORDS_PER_MINUTE = 155
 MIN_EXPECTED_DURATION_RATIO = 0.45
 MIN_REAL_AUDIO_SECONDS = 8.0
+MAX_AUDIO_DURATION_SECONDS = 150.0
 
 
 def resample_audio_scipy(audio, original_sr, target_sr):
@@ -377,6 +378,24 @@ def _extend_audio_to_minimum_duration(file_path: str, minimum_seconds: float) ->
         return False
 
 
+def _limit_audio_duration(file_path: str, maximum_seconds: float = MAX_AUDIO_DURATION_SECONDS) -> bool:
+    """Trim generated audio so podcast files never exceed the product limit."""
+    try:
+        duration = _get_audio_duration_seconds(file_path)
+        if duration is None or duration <= maximum_seconds:
+            return False
+        audio, sample_rate = sf.read(file_path)
+        if audio is None or audio.size == 0 or sample_rate <= 0:
+            return False
+        target_samples = int(maximum_seconds * sample_rate)
+        sf.write(file_path, audio[:target_samples], sample_rate)
+        print(f"Trimmed TTS audio from {duration:.1f}s to {maximum_seconds:.1f}s")
+        return True
+    except Exception as e:
+        print(f"Could not limit audio duration for {file_path}: {e}")
+        return False
+
+
 def _should_use_real_tts() -> bool:
     value = os.environ.get("PODCAST_STUDIO_USE_REAL_TTS", "1").strip().lower()
     return value not in {"0", "false", "no", "off", "disabled"}
@@ -533,7 +552,10 @@ def audio_generate_agent_run(agent: Agent) -> str:
             print(f"Generating podcast audio using {tts_engine} TTS engine in {language_name} language")
             full_audio_path = None
             use_real_tts = _should_use_real_tts()
-            min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
+            min_duration = min(
+                _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO,
+                MAX_AUDIO_DURATION_SECONDS,
+            )
             print(f"Script has {len(script_entries)} dialog entries; requiring at least {min_duration:.1f}s of generated audio")
             expanded_script = False
             if use_real_tts:
@@ -572,7 +594,10 @@ def audio_generate_agent_run(agent: Agent) -> str:
                                     script_entries = fresh_entries
                                     session_state["generated_script"] = fresh_script
                                     SessionService.save_session(session_id, session_state)
-                                    min_duration = _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO
+                                    min_duration = min(
+                                        _estimate_spoken_duration_seconds(script_entries) * MIN_EXPECTED_DURATION_RATIO,
+                                        MAX_AUDIO_DURATION_SECONDS,
+                                    )
                                     expanded_script = True
                                     try:
                                         os.remove(full_audio_path)
@@ -585,6 +610,7 @@ def audio_generate_agent_run(agent: Agent) -> str:
                                         language_code=language_code,
                                     )
                         if full_audio_path:
+                            _limit_audio_duration(full_audio_path)
                             _extend_audio_to_minimum_duration(full_audio_path, min_duration)
                     if full_audio_path and not _is_valid_audio_file(full_audio_path, min_duration_seconds=min_duration):
                         duration = _get_audio_duration_seconds(full_audio_path)
