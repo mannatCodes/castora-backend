@@ -303,6 +303,18 @@ def refresh_articles_from_feeds():
         print(f"ERROR: latest crawled article is older than 30 hours. Latest crawled: {latest_crawled_date}")
         return 1
 
+    # Render's local filesystem is erased on restart. Persist both sources
+    # and crawled articles only after this run has completed successfully, so
+    # the next instance resumes the same article database rather than showing
+    # only its first 20 crawled entries.
+    from services.podcast_backup_service import backup_article_databases
+
+    backed_up, backup_message = backup_article_databases()
+    if backed_up:
+        print(backup_message)
+    else:
+        print(f"WARNING: {backup_message}")
+
     print(f"Freshness check passed. Latest crawled article: {latest_crawled_date}")
     return 0
 

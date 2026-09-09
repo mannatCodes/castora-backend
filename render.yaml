@@ -4,7 +4,10 @@ services:
     runtime: python
     plan: 0.5c-512mb
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT
+    # The Studio sends banner approvals to Celery. Start the API and its
+    # worker together; running Gunicorn alone leaves deployed audio jobs with
+    # no process to execute them.
+    startCommand: bash start_render.sh
     healthCheckPath: /healthz
     envVars:
       # Podcast data is backed up outside Render because Free web services
@@ -49,10 +52,10 @@ services:
         sync: false
       - key: PODCAST_STUDIO_USE_REAL_TTS
         value: "true"
-      # A hosted engine avoids loading the resource-heavy local Kokoro model
-      # in the Render web process. Configure ELEVENSLAB_API_KEY in Render.
+      # Edge TTS needs no paid-provider credits. ElevenLabs/OpenAI remain
+      # fallbacks when their keys are configured.
       - key: PODCAST_STUDIO_DEFAULT_TTS_ENGINE
-        value: "elevenlabs"
+        value: "edge"
       - key: PODCAST_STUDIO_TTS_FALLBACKS
         value: "true"
       - key: PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO

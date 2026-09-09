@@ -13,9 +13,13 @@ from urllib.parse import quote
 
 import requests
 
-from db.config import APP_ROOT, get_podcasts_db_path
+from db.config import APP_ROOT, get_podcasts_db_path, get_sources_db_path, get_tracking_db_path
 
 DATABASE_OBJECT = "database/podcasts.db"
+ARTICLE_DATABASE_OBJECTS = {
+    "database/sources.db": get_sources_db_path,
+    "database/feed_tracking.db": get_tracking_db_path,
+}
 
 
 def _settings() -> tuple[str, str, str] | None:
@@ -77,6 +81,56 @@ def restore_podcast_backup() -> bool:
     except Exception as error:
         print(f"WARNING: Could not restore podcast backup: {error}")
         return False
+
+
+def restore_article_databases() -> int:
+    """Restore the source and article store before the API initializes SQLite.
+
+    Render's filesystem is temporary. Without this, every restart creates an
+    empty article store and the scheduler only repopulates its first capped
+    crawl batch (normally 20 articles).
+    """
+    if not _settings():
+        if _required():
+            print("ERROR: Supabase backup is required but not configured.")
+        return 0
+    restored = 0
+    for object_name, path_getter in ARTICLE_DATABASE_OBJECTS.items():
+        try:
+            if _download(Path(path_getter()), object_name):
+                restored += 1
+                print(f"Restored {object_name} from Supabase Storage.")
+        except Exception as error:
+            print(f"WARNING: Could not restore {object_name}: {error}")
+    return restored
+
+
+def _checkpoint_database(database_path: Path) -> None:
+    """Fold SQLite's WAL into its database before uploading the base file."""
+    if not database_path.exists():
+        return
+    with sqlite3.connect(database_path, timeout=30) as conn:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+
+def backup_article_databases() -> tuple[bool, str]:
+    """Persist the deployed article/source store after feed ingestion."""
+    if not _settings():
+        if _required():
+            return False, "Supabase backup is required but not configured."
+        return True, "Cloud article backup is disabled for local development."
+    try:
+        uploaded = 0
+        for object_name, path_getter in ARTICLE_DATABASE_OBJECTS.items():
+            database_path = Path(path_getter())
+            if not database_path.exists():
+                continue
+            _checkpoint_database(database_path)
+            _upload(database_path, object_name)
+            uploaded += 1
+        return True, f"Uploaded {uploaded} article database file(s) to Supabase Storage."
+    except Exception as error:
+        return False, f"Could not back up article databases: {error}"
 
 
 def restore_podcast_assets() -> int:

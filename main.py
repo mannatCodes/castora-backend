@@ -45,8 +45,15 @@ scheduler_process = None
 async def lifespan(app: FastAPI):
     global scheduler_process
     print("Starting up application...")
-    from services.podcast_backup_service import restore_podcast_assets, restore_podcast_backup
+    from services.podcast_backup_service import (
+        restore_article_databases,
+        restore_podcast_assets,
+        restore_podcast_backup,
+    )
 
+    restored_article_databases = restore_article_databases()
+    if restored_article_databases:
+        print(f"Restored {restored_article_databases} article database file(s) from Supabase Storage.")
     restore_podcast_backup()
     await init_databases()
     restored_assets = restore_podcast_assets()
