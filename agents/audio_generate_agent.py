@@ -383,7 +383,7 @@ def _extract_script_entries(script_data: Dict[str, Any]) -> List[Dict[str, Any]]
 
 
 def _configured_tts_engines(preferred_engine: str) -> List[str]:
-    preferred_engine = (preferred_engine or "kokoro").lower()
+    preferred_engine = (preferred_engine or "edge").lower()
     engines = [preferred_engine]
     # Kokoro downloads and initializes a sizeable local model on first use.
     # It must be an explicit opt-in: otherwise an old saved session with
@@ -393,8 +393,6 @@ def _configured_tts_engines(preferred_engine: str) -> List[str]:
     fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
     if fallback_enabled:
         fallback_order = ["windows", "elevenlabs"] if os.name == "nt" else ["elevenlabs"]
-        if allow_kokoro:
-            fallback_order.append("kokoro")
         engines.extend(e for e in fallback_order if e != preferred_engine)
 
     configured = []
@@ -464,7 +462,7 @@ def audio_generate_agent_run(agent: Agent) -> str:
             selected_language = session_state.get("selected_language", {"code": "en", "name": "English"})
             language_code = selected_language.get("code", "en")
             language_name = selected_language.get("name", "English")
-            tts_engine = session_state.get("tts_engine", "kokoro")
+            tts_engine = session_state.get("tts_engine", "edge")
             print(f"Generating podcast audio using {tts_engine} TTS engine in {language_name} language")
             full_audio_path = None
             use_real_tts = _should_use_real_tts()

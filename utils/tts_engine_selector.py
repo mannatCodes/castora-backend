@@ -41,16 +41,29 @@ def _set_last_tts_error(message: str) -> None:
 
 
 def generate_podcast_audio(
-    script: Any, output_path: str, tts_engine: str = "kokoro", language_code: str = "en", silence_duration: float = 0.7, voice_map=None
+    script: Any,
+    output_path: str,
+    tts_engine: str = "edge",
+    language_code: str = "en",
+    silence_duration: float = 0.7,
+    voice_map=None,
 ) -> Optional[str]:
+
     _set_last_tts_error("")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    output_dir = os.path.dirname(output_path)
+
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
     engine_name = tts_engine.lower()
+
     if engine_name not in _TTS_ENGINES:
         message = f"Unsupported TTS engine: {tts_engine}"
         print(message)
         _set_last_tts_error(message)
         return None
+
     try:
         result = _TTS_ENGINES[engine_name](
             script=script, output_path=output_path, language_code=language_code, silence_duration=silence_duration, voice_map=voice_map
@@ -107,6 +120,16 @@ def register_default_engines():
             script=script, output_path=output_path, silence_duration=silence_duration, sampling_rate=24_000, lang_code=kokoro_lang_code
         )
 
+    def edge_generator(script, output_path, language_code, silence_duration, voice_map):
+        from utils.text_to_audio_edge import create_podcast as edge_create_podcast
+
+        return edge_create_podcast(
+            script=script,
+            output_path=output_path,
+            language_code=language_code,
+            silence_duration=silence_duration,
+        )
+
     def openai_generator(script, output_path, language_code, silence_duration, voice_map):
         from utils.text_to_audio_openai import create_podcast as openai_create_podcast
 
@@ -127,6 +150,7 @@ def register_default_engines():
 
     register_tts_engine("elevenlabs", elevenlabs_generator)
     register_tts_engine("kokoro", kokoro_generator)
+    register_tts_engine("edge", edge_generator)
     register_tts_engine("openai", openai_generator)
     if os.name == "nt":
         register_tts_engine("windows", windows_generator)

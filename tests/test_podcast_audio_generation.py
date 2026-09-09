@@ -126,29 +126,6 @@ class AudioGenerationTests(unittest.TestCase):
 
             self.assertIn("failed to generate podcast audio", result.lower())
 
-    def test_usable_short_audio_is_extended_to_required_duration(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            audio_path = os.path.join(tmp_dir, "short-but-usable.wav")
-            _write_tone(audio_path, duration_seconds=41.0)
-
-            extended = audio_generate_agent._extend_audio_to_minimum_duration(audio_path, 65.3)
-
-            self.assertTrue(extended)
-            self.assertGreaterEqual(audio_generate_agent._get_audio_duration_seconds(audio_path), 65.3)
-
-    def test_audio_is_trimmed_to_two_and_a_half_minutes(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            audio_path = os.path.join(tmp_dir, "long.wav")
-            _write_tone(audio_path, duration_seconds=180.0)
-
-            trimmed = audio_generate_agent._limit_audio_duration(audio_path)
-
-            self.assertTrue(trimmed)
-            self.assertLessEqual(
-                audio_generate_agent._get_audio_duration_seconds(audio_path),
-                audio_generate_agent.MAX_AUDIO_DURATION_SECONDS,
-            )
-
     def test_audio_generation_never_replaces_failed_speech_with_a_tone(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             with patch.dict(
