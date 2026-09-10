@@ -181,6 +181,21 @@ class AudioGenerationTests(unittest.TestCase):
         self.assertIn("edge", engines)
         self.assertIn("windows", engines)
 
+    def test_production_edge_preference_repairs_saved_paid_engine_selection(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PODCAST_STUDIO_PREFER_EDGE_TTS": "true",
+                "PODCAST_STUDIO_TTS_FALLBACKS": "true",
+                "ELEVENLABS_API_KEY": "test-elevenlabs-key",
+            },
+            clear=False,
+        ):
+            engines = audio_generate_agent._configured_tts_engines("elevenlabs")
+
+        self.assertEqual(engines[0], "edge")
+        self.assertIn("elevenlabs", engines)
+
     def test_windows_session_prefers_configured_hosted_tts(self):
         with patch.object(audio_generate_agent.os, "name", "nt"):
             with patch.dict(

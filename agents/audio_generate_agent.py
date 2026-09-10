@@ -392,6 +392,14 @@ def _configured_tts_engines(preferred_engine: str) -> List[str]:
     allow_kokoro = os.environ.get("PODCAST_STUDIO_ENABLE_KOKORO", "0").strip().lower() in {"1", "true", "yes", "on"}
     fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
     prefer_hosted = os.environ.get("PODCAST_STUDIO_PREFER_HOSTED_TTS", "1").strip().lower() not in {"0", "false", "no", "off"}
+    # Edge is a free, network-hosted speech service and is the dependable
+    # production default when a paid provider has no remaining credits. This
+    # deliberately also applies to old sessions that saved "elevenlabs"
+    # before the deployment default changed to Edge.
+    prefer_edge = os.environ.get("PODCAST_STUDIO_PREFER_EDGE_TTS", "0").strip().lower() in {"1", "true", "yes", "on"}
+    if prefer_edge and preferred_engine in {"elevenlabs", "openai"}:
+        print(f"Using Edge TTS before {preferred_engine} because PODCAST_STUDIO_PREFER_EDGE_TTS is enabled")
+        preferred_engine = "edge"
 
     # Windows SAPI is often unavailable to a web/worker process (for example,
     # when it runs without an interactive desktop).  Do not make a valid
@@ -430,8 +438,8 @@ def _configured_tts_engines(preferred_engine: str) -> List[str]:
         if engine == "openai" and not load_api_key("OPENAI_API_KEY"):
             print("Skipping OpenAI TTS fallback because OPENAI_API_KEY is not configured")
             continue
-        if engine == "elevenlabs" and not load_api_key("ELEVENSLAB_API_KEY"):
-            print("Skipping ElevenLabs TTS fallback because ELEVENSLAB_API_KEY is not configured")
+        if engine == "elevenlabs" and not load_api_key("ELEVENLABS_API_KEY"):
+            print("Skipping ElevenLabs TTS fallback because ELEVENLABS_API_KEY is not configured")
             continue
         configured.append(engine)
     return configured

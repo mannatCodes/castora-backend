@@ -145,6 +145,11 @@ def create_podcast(
             voice_map=voice_map,
             model_id=elevenlabs_model,
         )
+        # Quota exhaustion cannot recover within this request.  Continuing
+        # through every dialogue segment only produces duplicate API errors
+        # and delays the Edge/OpenAI fallback.
+        if "quota_exceeded" in get_last_elevenlabs_error().lower():
+            return None
         if result:
             segment_audio, segment_rate = result
 

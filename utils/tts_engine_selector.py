@@ -104,7 +104,7 @@ def register_default_engines():
             silence_duration=silence_duration,
             voice_map=voice_map,
             elevenlabs_model=TTS_ELEVENLABS_MODEL,
-            api_key=load_api_key("ELEVENSLAB_API_KEY"),
+            api_key=load_api_key("ELEVENLABS_API_KEY"),
         )
         if not result:
             raise RuntimeError(get_last_elevenlabs_error() or "ElevenLabs returned no audio data")

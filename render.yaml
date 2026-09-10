@@ -63,6 +63,11 @@ services:
       # fallbacks when their keys are configured.
       - key: PODCAST_STUDIO_DEFAULT_TTS_ENGINE
         value: "edge"
+      # Use Edge first even for sessions saved before the default above was
+      # introduced. This prevents expired/empty ElevenLabs accounts from
+      # blocking podcast audio generation with quota errors.
+      - key: PODCAST_STUDIO_PREFER_EDGE_TTS
+        value: "true"
       - key: PODCAST_STUDIO_TTS_FALLBACKS
         value: "true"
       - key: PODCAST_STUDIO_ALLOW_PLACEHOLDER_AUDIO
