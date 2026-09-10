@@ -291,7 +291,7 @@ def refresh_articles_from_feeds():
             # and the SQLite writer lock.  The hourly scheduler will collect
             # the remaining entries on subsequent runs.
             batch_size=20,
-            total_batches=5,
+            total_batches=50,
             delay_between_batches=10,
         )
         print_crawl_stats(crawl_stats)
