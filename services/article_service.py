@@ -1,4 +1,5 @@
 from typing import List, Optional, Dict, Any
+import os
 from fastapi import HTTPException
 import json
 from datetime import datetime, timedelta
@@ -10,6 +11,15 @@ class ArticleService:
     """Service for managing article operations with the new database structure."""
 
     ARTICLE_RETENTION_DAYS = 2
+
+    @classmethod
+    def _retention_days(cls) -> Optional[int]:
+        """Return None when article history should be retained indefinitely."""
+        try:
+            configured_days = int(os.environ.get("ARTICLE_RETENTION_DAYS", str(cls.ARTICLE_RETENTION_DAYS)))
+        except ValueError:
+            configured_days = cls.ARTICLE_RETENTION_DAYS
+        return configured_days if configured_days > 0 else None
 
     @staticmethod
     def _published_date_sort_expression(column_name: str = "ca.published_date") -> str:
@@ -38,12 +48,15 @@ class ArticleService:
         """
 
     @classmethod
-    def _article_cutoff_date(cls) -> str:
-        return (datetime.now() - timedelta(days=cls.ARTICLE_RETENTION_DAYS)).isoformat()
+    def _article_cutoff_date(cls) -> Optional[str]:
+        retention_days = cls._retention_days()
+        return (datetime.now() - timedelta(days=retention_days)).isoformat() if retention_days else None
 
     async def _purge_old_articles(self) -> None:
         """Keep only recent articles in the article store."""
         cutoff_date = self._article_cutoff_date()
+        if cutoff_date is None:
+            return
         date_sort = self._published_date_sort_expression()
         old_article_ids = await tracking_db.execute_query(
             f"""
@@ -92,8 +105,10 @@ class ArticleService:
                 "LEFT JOIN feed_entries fe ON fe.id = ca.entry_id",
                 "WHERE ca.url IS NOT NULL AND ca.url != ''",
             ]
-            query_parts.append(f"AND datetime({date_sort}) >= datetime(?)")
-            query_params = [cutoff_date]
+            query_params = []
+            if cutoff_date:
+                query_parts.append(f"AND datetime({date_sort}) >= datetime(?)")
+                query_params.append(cutoff_date)
             if source:
                 source_id_query = "SELECT id FROM sources WHERE name = ?"
                 source_id_result = await sources_db.execute_query(source_id_query, (source,), fetch=True, fetch_one=True)
@@ -142,9 +157,12 @@ class ArticleService:
                 MAX(datetime(crawled_date)) as latest_crawled_date
             FROM crawled_articles ca
             WHERE ca.url IS NOT NULL AND ca.url != ''
-              AND datetime({date_sort}) >= datetime(?)
             """
-            freshness = await tracking_db.execute_query(freshness_query, (cutoff_date,), fetch=True, fetch_one=True) or {}
+            freshness_params = []
+            if cutoff_date:
+                freshness_query += f" AND datetime({date_sort}) >= datetime(?)"
+                freshness_params.append(cutoff_date)
+            freshness = await tracking_db.execute_query(freshness_query, tuple(freshness_params), fetch=True, fetch_one=True) or {}
             feed_ids = [article["feed_id"] for article in articles if article.get("feed_id")]
             source_names = {}
             if feed_ids:
@@ -195,9 +213,12 @@ class ArticleService:
             FROM crawled_articles ca
             LEFT JOIN feed_entries fe ON fe.id = ca.entry_id
             WHERE ca.id = ?
-              AND datetime({date_sort}) >= datetime(?)
             """
-            article = await tracking_db.execute_query(article_query, (article_id, cutoff_date), fetch=True, fetch_one=True)
+            article_params = [article_id]
+            if cutoff_date:
+                article_query += f" AND datetime({date_sort}) >= datetime(?)"
+                article_params.append(cutoff_date)
+            article = await tracking_db.execute_query(article_query, tuple(article_params), fetch=True, fetch_one=True)
             if not article:
                 raise HTTPException(status_code=404, detail="Article not found")
             if article.get("feed_id"):
@@ -242,18 +263,18 @@ class ArticleService:
         await self._purge_old_articles()
         cutoff_date = self._article_cutoff_date()
         date_sort = self._published_date_sort_expression()
-        feed_rows = await tracking_db.execute_query(
-            f"""
+        feed_query = f"""
             SELECT DISTINCT ca.feed_id
             FROM crawled_articles ca
             WHERE ca.feed_id IS NOT NULL
               AND ca.url IS NOT NULL
               AND ca.url != ''
-              AND datetime({date_sort}) >= datetime(?)
-            """,
-            (cutoff_date,),
-            fetch=True,
-        )
+        """
+        feed_params = []
+        if cutoff_date:
+            feed_query += f" AND datetime({date_sort}) >= datetime(?)"
+            feed_params.append(cutoff_date)
+        feed_rows = await tracking_db.execute_query(feed_query, tuple(feed_params), fetch=True)
         feed_ids = [row["feed_id"] for row in feed_rows if row.get("feed_id")]
         if not feed_ids:
             return []
@@ -279,11 +300,15 @@ class ArticleService:
         SELECT category_name, COUNT(DISTINCT article_id) as article_count
         FROM article_categories
         JOIN crawled_articles ca ON ca.id = article_categories.article_id
-        WHERE datetime({date_sort}) >= datetime(?)
+        WHERE 1=1
         GROUP BY category_name
         ORDER BY article_count DESC
         """
-        return await tracking_db.execute_query(query, (cutoff_date,), fetch=True)
+        category_params = []
+        if cutoff_date:
+            query = query.replace("WHERE 1=1", f"WHERE datetime({date_sort}) >= datetime(?)")
+            category_params.append(cutoff_date)
+        return await tracking_db.execute_query(query, tuple(category_params), fetch=True)
 
 
 article_service = ArticleService()

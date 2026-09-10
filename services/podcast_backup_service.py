@@ -34,6 +34,12 @@ def _required() -> bool:
     return os.environ.get("CLOUD_PODCAST_BACKUP_REQUIRED", default).lower() in {"1", "true", "yes"}
 
 
+def _article_persistence_enabled() -> bool:
+    """Keep the production article store independent from local development."""
+    default = "true" if (os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID")) else "false"
+    return os.environ.get("PERSIST_ARTICLE_DATABASE", default).lower() in {"1", "true", "yes"}
+
+
 def _object_url(bucket: str, object_name: str) -> str:
     url, _, _ = _settings()  # caller has already checked configuration
     return f"{url}/storage/v1/object/{quote(bucket, safe='')}/{quote(object_name, safe='/')}"
@@ -90,6 +96,8 @@ def restore_article_databases() -> int:
     empty article store and the scheduler only repopulates its first capped
     crawl batch (normally 20 articles).
     """
+    if not _article_persistence_enabled():
+        return 0
     if not _settings():
         if _required():
             print("ERROR: Supabase backup is required but not configured.")
@@ -115,6 +123,8 @@ def _checkpoint_database(database_path: Path) -> None:
 
 def backup_article_databases() -> tuple[bool, str]:
     """Persist the deployed article/source store after feed ingestion."""
+    if not _article_persistence_enabled():
+        return True, "Cloud article backup is disabled outside production."
     if not _settings():
         if _required():
             return False, "Supabase backup is required but not configured."

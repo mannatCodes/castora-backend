@@ -20,6 +20,13 @@ services:
         value: castora-podcasts
       - key: CLOUD_PODCAST_BACKUP_REQUIRED
         value: "true"
+      # The production article/source store is independent from local
+      # development and survives Render restarts through Supabase Storage.
+      - key: PERSIST_ARTICLE_DATABASE
+        value: "true"
+      # Zero means retain the production article archive indefinitely.
+      - key: ARTICLE_RETENTION_DAYS
+        value: "2"
       # Seed the initial RSS sources when the app starts.
       - key: CASTORA_SEED_DEFAULT_SOURCES
         value: "true"

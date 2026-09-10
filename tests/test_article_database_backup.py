@@ -20,6 +20,7 @@ def test_article_database_backup_and_restore_use_the_same_cloud_objects(monkeypa
 
     monkeypatch.setattr(backup, "ARTICLE_DATABASE_OBJECTS", objects)
     monkeypatch.setattr(backup, "_settings", lambda: ("https://example.test", "key", "bucket"))
+    monkeypatch.setenv("PERSIST_ARTICLE_DATABASE", "true")
     monkeypatch.setattr(backup, "_upload", lambda path, object_name: uploaded.append((path, object_name)))
     monkeypatch.setattr(
         backup,
@@ -33,4 +34,3 @@ def test_article_database_backup_and_restore_use_the_same_cloud_objects(monkeypa
     assert [object_name for _, object_name in uploaded] == list(objects)
     assert backup.restore_article_databases() == 2
     assert [object_name for _, object_name in restored] == list(objects)
-

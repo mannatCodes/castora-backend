@@ -173,10 +173,11 @@ def fetch_and_process_feeds(
                 # ----------------------------
                 # 🔥 FILTER: ONLY TODAY / RECENT NEWS
                 # ----------------------------
-                filtered_entries = [
-                    entry for entry in parsed_entries
-                    if is_today(entry.get("published_date")) or is_recent_news(entry.get("published_date"))
-                ]
+                # Retain every entry returned by the active feed. Production
+                # is an archive, not a rolling 24-hour cache: discarding RSS
+                # items here makes its persistent store incomplete after a
+                # deployment or ingestion downtime.
+                filtered_entries = parsed_entries
 
                 # sort newest first
                 filtered_entries.sort(
