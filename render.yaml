@@ -30,6 +30,9 @@ services:
       # Seed the initial RSS sources when the app starts.
       - key: CASTORA_SEED_DEFAULT_SOURCES
         value: "true"
+      # Permit the separately hosted Vercel frontend to call this API.
+      - key: CORS_ORIGINS
+        value: "https://castora-frontend.vercel.app"
       - key: REDIS_URL
         fromService:
           name: castora-queue

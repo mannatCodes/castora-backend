@@ -23,7 +23,7 @@ CORS_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "CORS_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000",
+        "http://localhost:3000,http://127.0.0.1:3000,https://castora-frontend.vercel.app",
     ).split(",")
     if origin.strip()
 ]
@@ -97,7 +97,8 @@ app = FastAPI(title="Castora API", description="Castora API", version="1.0.0", l
 app.add_middleware(
     CORSMiddleware,
     # The API does not use browser cookies. Keep the allowed origins explicit
-    # so a separately hosted frontend is opt-in via CORS_ORIGINS.
+    # Production defaults include the deployed Vercel UI. Set CORS_ORIGINS to
+    # a comma-separated list when using another separately hosted frontend.
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
