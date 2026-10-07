@@ -28,6 +28,8 @@ ELEVENSLAB_API_KEY=your_elevenlabs_api_key
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_DB=0
+# Comma-separated origins when the frontend is hosted separately.
+CORS_ORIGINS=http://localhost:3000
 ```
 
 `ELEVENSLAB_API_KEY` is optional. Never commit `.env`; it is already excluded by `.gitignore`.

@@ -19,6 +19,14 @@ env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 APP_ROOT = Path(__file__).resolve().parent
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
 _is_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
 # Render Free's filesystem is ephemeral and exposes no /var/data disk. The
 # approved podcast database/assets are restored from Supabase during lifespan.
@@ -88,8 +96,10 @@ app = FastAPI(title="Castora API", description="Castora API", version="1.0.0", l
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # The API does not use browser cookies. Keep the allowed origins explicit
+    # so a separately hosted frontend is opt-in via CORS_ORIGINS.
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
