@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 import aiosqlite
 import glob
 import traceback
+import wave
 from redis.asyncio import ConnectionPool, Redis
 from db.config import get_agent_session_db_path
 from db.agent_config_v2 import (
@@ -49,12 +50,12 @@ class PodcastAgentService:
         redis_url = os.environ.get("REDIS_URL")
         if redis_url:
             self.redis_pool = ConnectionPool.from_url(redis_url, db=self.redis_db + 1, max_connections=10)
+            self.redis = Redis(connection_pool=self.redis_pool)
         else:
-            self.redis_pool = ConnectionPool.from_url(
-                f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db + 1}",
-                max_connections=10,
-            )
-        self.redis = Redis(connection_pool=self.redis_pool)
+            # Redis is optional with the local executor. Do not retry a
+            # nonexistent localhost broker on every Studio request.
+            self.redis_pool = None
+            self.redis = None
         # Use the durable worker whenever a broker is configured. Local
         # development remains worker-free unless explicitly opted in.
         self.use_celery = os.environ.get(
@@ -110,6 +111,23 @@ class PodcastAgentService:
 
         stage = session_state.get("stage")
         generated_script = session_state.get("generated_script")
+        # Audio is written before the worker's final session update. If the
+        # worker is interrupted in that small window, recover the completed
+        # checkpoint instead of leaving Studio permanently in a polling state.
+        pending_audio = self._completed_pending_audio(session_state)
+        if (
+            pending_audio
+            and not session_state.get("audio_url")
+            and stage in {"audio_generation", "audio"}
+        ):
+            session_state["audio_url"] = pending_audio
+            session_state.pop("pending_audio_url", None)
+            session_state.pop("active_task_id", None)
+            session_state["stage"] = "audio"
+            session_state["is_processing"] = False
+            session_state["response"] = "Your podcast audio is ready. Please review it."
+            SessionService.save_session(session_id, session_state)
+            stage = "audio"
         if stage == "script" and generated_script:
             return {
                 "session_id": session_id,
@@ -137,10 +155,27 @@ class PodcastAgentService:
             }
         return None
 
+    @staticmethod
+    def _completed_pending_audio(session_state):
+        """Return a checkpointed WAV only after it has been fully written."""
+        filename = str(session_state.get("pending_audio_url") or "")
+        if not filename or filename != os.path.basename(filename):
+            return None
+        audio_path = os.path.join(PODCAST_AUDIO_DIR, filename)
+        try:
+            with wave.open(audio_path, "rb") as wav_file:
+                if wav_file.getnframes() <= 0 or wav_file.getframerate() <= 0:
+                    return None
+            return filename
+        except (FileNotFoundError, OSError, wave.Error):
+            return None
+
     async def get_active_task(self, session_id):
         local_task_id = self._get_local_active_task(session_id)
         if local_task_id:
             return local_task_id
+        if self.redis is None:
+            return None
         try:
             lock_info = await self.redis.get(f"lock_info:{session_id}")
             if lock_info:
@@ -443,6 +478,14 @@ class PodcastAgentService:
             # error instead of trapping the Studio in a permanent spinner.
             session = SessionService.get_session(request.session_id)
             session_state = session.get("state", {})
+            if (
+                session_state.get("stage") in {"audio_generation", "audio"}
+                and not session_state.get("audio_url")
+                and self._completed_pending_audio(session_state)
+            ):
+                recovered_response = self._ready_state_response(request.session_id)
+                recovered_response["browser_recording_path"] = browser_recording_path
+                return recovered_response
             if session_state.get("stage") == "audio_generation":
                 message = (
                     "Audio generation stopped before the TTS provider returned audio. "
