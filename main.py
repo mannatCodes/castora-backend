@@ -94,17 +94,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Castora API", description="Castora API", version="1.0.0", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    # The API does not use browser cookies. Keep the allowed origins explicit
-    # Production defaults include the deployed Vercel UI. Set CORS_ORIGINS to
-    # a comma-separated list when using another separately hosted frontend.
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 app.include_router(article_router.router, prefix="/api/articles", tags=["articles"])
 app.include_router(source_router.router, prefix="/api/sources", tags=["sources"])
@@ -244,6 +233,20 @@ async def serve_react(full_path: str, request: Request):
         return FileResponse(index_path)
     else:
         return {"detail": "React client not found. Build the client or set the correct CLIENT_BUILD_PATH."}
+
+
+# Keep CORS as the outermost ASGI layer. ``app.add_middleware`` only adds the
+# header to responses that make it through FastAPI's normal middleware stack;
+# an unhandled exception otherwise becomes an opaque browser-side "Network
+# Error" because the generated 500 response has no CORS header. Wrapping the
+# fully configured application also covers those error responses.
+app = CORSMiddleware(
+    app=app,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 if __name__ == "__main__":
