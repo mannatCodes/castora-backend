@@ -5,13 +5,14 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from agno.agent import Agent
 from utils.load_api_keys import load_api_key
+from db.agent_config_v2 import AGENT_MODEL
 
 
 import json
 
 load_dotenv()
 
-BROWSER_AGENT_MODEL = "llama-3.3-70b-versatile"
+BROWSER_AGENT_MODEL = AGENT_MODEL
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 MAX_STEPS = 15
 MAX_ACTIONS_PER_STEP = 5

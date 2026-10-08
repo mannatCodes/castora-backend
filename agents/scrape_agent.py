@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from tools.browser_crawler import create_browser_crawler
 from textwrap import dedent
 from utils.retry_handler import run_with_retry_and_throttle
+from db.agent_config_v2 import AGENT_MODEL
 
 
 load_dotenv()
@@ -116,7 +117,7 @@ def verify_content_with_agent(agent, query, search_results, use_agent=True):
         search_result["agent_verified"] = False
         try:
             scrape_agent = Agent(
-                model=Groq(id="llama-3.3-70b-versatile"),
+                model=Groq(id=AGENT_MODEL),
                 instructions=SCRAPE_AGENT_INSTRUCTIONS,
                 description=SCRAPE_AGENT_DESCRIPTION,
                 use_json_mode=True,

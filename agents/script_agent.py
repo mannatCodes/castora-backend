@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import re
 from utils.retry_handler import run_with_retry_and_throttle
+from db.agent_config_v2 import AGENT_MODEL
 
 
 # =========================
@@ -414,7 +415,7 @@ def podcast_script_agent_run(agent: Agent, query: str, language_name: str) -> st
         # AGENT
         # =========================
         podcast_script_agent = Agent(
-            model=Groq(id="llama-3.3-70b-versatile"),
+            model=Groq(id=AGENT_MODEL),
             instructions=PODCAST_AGENT_INSTRUCTIONS,
             description=PODCAST_AGENT_DESCRIPTION,
             response_model=PodcastScript,

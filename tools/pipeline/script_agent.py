@@ -7,6 +7,7 @@ from textwrap import dedent
 from datetime import datetime
 import uuid
 import os
+from db.agent_config_v2 import AGENT_MODEL
 
 
 load_dotenv()
@@ -100,7 +101,7 @@ def script_agent_run(
         if not content_texts:
             return {}
         podcast_script_agent = Agent(
-            model=Groq(id="llama-3.3-70b-versatile",api_key=os.getenv("GROQ_API_KEY")),
+            model=Groq(id=AGENT_MODEL, api_key=os.getenv("GROQ_API_KEY")),
             instructions=PODCAST_AGENT_INSTRUCTIONS,
             description=PODCAST_AGENT_DESCRIPTION,
             use_json_mode=True,

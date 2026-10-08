@@ -12,6 +12,7 @@ from tools.embedding_search import embedding_search
 from tools.search_articles import search_articles
 from tools.web_search import run_browser_search
 from utils.retry_handler import run_with_retry_and_throttle
+from db.agent_config_v2 import AGENT_MODEL
 
 
 load_dotenv()
@@ -78,7 +79,7 @@ def search_agent_run(agent: Agent, query: str) -> str:
     session = SessionService.get_session(session_id)
     current_state = session["state"]
     search_agent = Agent(
-        model=Groq(id="llama-3.3-70b-versatile"),
+        model=Groq(id=AGENT_MODEL),
         instructions=SEARCH_AGENT_INSTRUCTIONS,
         description=SEARCH_AGENT_DESCRIPTION,
         use_json_mode=True,

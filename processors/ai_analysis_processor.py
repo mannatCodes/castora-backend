@@ -7,8 +7,9 @@ from openai import OpenAI
 from db.config import get_tracking_db_path
 from db.articles import get_unprocessed_articles, update_article_status
 from utils.load_api_keys import load_api_key
+from db.agent_config_v2 import AGENT_MODEL
 
-WEB_PAGE_ANALYSE_MODEL = "llama-3.3-70b-versatile"
+WEB_PAGE_ANALYSE_MODEL = AGENT_MODEL
 MODEL_INSTRUCTION = "You are a helpful assistant that analyzes articles and extracts structured information."
 
 

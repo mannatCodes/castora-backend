@@ -3,7 +3,9 @@ from db.config import APP_ROOT, get_agent_session_db_path
 import json
 import os
 
-AGENT_MODEL = "llama-3.3-70b-versatile"
+# Groq retired Llama 3.3 70B for developer-tier API keys. Keep the provider
+# model configurable so deployments can select a model enabled for their key.
+AGENT_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 AVAILABLE_LANGS = [
     {"code": "en", "name": "English"},
