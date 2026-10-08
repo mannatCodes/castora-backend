@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import threading
 from typing import Any
 
 import edge_tts
@@ -37,22 +38,34 @@ async def _generate_segment(
 
 def _run_async(coro):
     """
-    Run an async coroutine safely from synchronous code.
+    Run an async coroutine safely from synchronous code with a bounded wait.
+
+    Edge TTS is a network service. A stalled connection must fail the podcast
+    job so its status can be returned to Studio; otherwise a worker may be
+    terminated while waiting and the browser only sees a generic network/CORS
+    error from the proxy.
     """
+
+    try:
+        timeout_seconds = float(os.environ.get("EDGE_TTS_SEGMENT_TIMEOUT_SECONDS", "45"))
+    except ValueError:
+        timeout_seconds = 45.0
+    timeout_seconds = max(1.0, timeout_seconds)
+
+    async def run_with_timeout():
+        return await asyncio.wait_for(coro, timeout=timeout_seconds)
 
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
-
-    import threading
+        return asyncio.run(run_with_timeout())
 
     result = []
     error = []
 
     def runner():
         try:
-            result.append(asyncio.run(coro))
+            result.append(asyncio.run(run_with_timeout()))
         except Exception as exc:
             error.append(exc)
 

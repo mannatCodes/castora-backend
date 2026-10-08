@@ -4,9 +4,9 @@ services:
     runtime: python
     plan: 0.5c-512mb
     buildCommand: pip install -r requirements.txt
-    # The Studio sends banner approvals to Celery. Start the API and its
-    # worker together; running Gunicorn alone leaves deployed audio jobs with
-    # no process to execute them.
+    # Podcast work runs in the API's bounded local executor. Keeping a second
+    # Celery process in this 512 MB web service can terminate audio jobs under
+    # memory pressure and make the browser report an opaque CORS/network error.
     startCommand: bash start_render.sh
     healthCheckPath: /healthz
     envVars:
@@ -80,7 +80,13 @@ services:
       - key: PODCAST_STUDIO_FAST_SCRIPT
         value: "false"
       - key: PODCAST_AGENT_USE_CELERY
-        value: "true"
+        value: "false"
+      - key: PODCAST_AGENT_WORKERS
+        value: "1"
+      - key: PODCAST_AGENT_TASK_TIMEOUT_SECONDS
+        value: "480"
+      - key: EDGE_TTS_SEGMENT_TIMEOUT_SECONDS
+        value: "45"
 
   - type: keyvalue
     name: castora-queue

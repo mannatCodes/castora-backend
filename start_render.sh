@@ -17,11 +17,17 @@ stop_children() {
 }
 trap stop_children EXIT INT TERM
 
-if [[ -n "${REDIS_URL:-}" || ( -n "${REDIS_HOST:-}" && "${REDIS_HOST:-}" != "localhost" ) ]]; then
+# Running the worker alongside the API duplicates the application's sizeable
+# dependency graph. On the 512 MB Render web instance this can cause the OS to
+# kill a process mid-generation, which presents to the browser as a CORS/network
+# error even though the origin policy is correct. Production uses the API's
+# bounded local executor unless Celery has been explicitly enabled.
+if [[ "${PODCAST_AGENT_USE_CELERY:-false}" =~ ^(1|true|yes|on)$ ]] && \
+   [[ -n "${REDIS_URL:-}" || ( -n "${REDIS_HOST:-}" && "${REDIS_HOST:-}" != "localhost" ) ]]; then
   python -m celery_worker &
   children+=("$!")
 else
-  echo "REDIS_URL/REDIS_HOST is not configured; Celery worker is not started."
+  echo "Celery worker is disabled or Redis is not configured; using the API's local task executor."
 fi
 
 python main.py &
