@@ -236,6 +236,12 @@ class PodcastAgentService:
                     "task_id": None,
                 }
             task = agent_chat.delay(request.session_id, request.message)
+            # The browser only keeps the task id in memory. Persist it with
+            # the session so polling can resume after a refresh or a transient
+            # network failure while a banner or audio job is running.
+            session_state["active_task_id"] = task.id
+            session_state["is_processing"] = True
+            SessionService.save_session(session_id, session_state)
             return {
                 "session_id": request.session_id,
                 "response": "Your request is being processed.",
@@ -283,6 +289,17 @@ class PodcastAgentService:
             browser_recording_path = self._browser_recording(request.session_id)
 
             task_id = getattr(request, "task_id", None)
+            if not task_id:
+                # A page reload loses the task id held by the React component.
+                # Recover it from durable session state before falling back to
+                # the Redis lock, which only exists while a worker is active.
+                try:
+                    session_state = SessionService.get_session(request.session_id).get("state", {})
+                    task_id = session_state.get("active_task_id")
+                except Exception as session_error:
+                    print(f"Error recovering active task id: {session_error}")
+                if not task_id:
+                    task_id = await self.get_active_task(request.session_id)
             if task_id:
                 if task_id.startswith("local:"):
                     task_info = self.local_tasks.get(task_id)
@@ -375,6 +392,14 @@ class PodcastAgentService:
                 elif task.state == "SUCCESS":
                     result = task.result
                     if result and isinstance(result, dict):
+                        try:
+                            session = SessionService.get_session(request.session_id)
+                            session_state = session.get("state", {})
+                            session_state.pop("active_task_id", None)
+                            session_state["is_processing"] = False
+                            SessionService.save_session(request.session_id, session_state)
+                        except Exception as session_error:
+                            print(f"Error clearing completed task state: {session_error}")
                         if result.get("session_id") != request.session_id:
                             return {
                                 "session_id": request.session_id,
@@ -392,6 +417,18 @@ class PodcastAgentService:
                             "Podcast Studio worker failed while executing the task. "
                             "Restart the worker with: python -m celery_worker"
                         )
+                    try:
+                        session = SessionService.get_session(request.session_id)
+                        session_state = session.get("state", {})
+                        session_state.pop("active_task_id", None)
+                        session_state["is_processing"] = False
+                        if session_state.get("stage") == "audio_generation":
+                            session_state["stage"] = "audio"
+                            session_state["audio_error"] = error_info
+                            session_state["show_audio_for_confirmation"] = False
+                        SessionService.save_session(request.session_id, session_state)
+                    except Exception as session_error:
+                        print(f"Error clearing failed task state: {session_error}")
                     return {
                         "session_id": request.session_id,
                         "response": f"Error processing request: {error_info}",
@@ -400,6 +437,33 @@ class PodcastAgentService:
                         "is_processing": False,
                         "browser_recording_path": browser_recording_path,
                     }
+            # A worker may be restarted or exceed its task limit after it has
+            # written the intermediate audio_generation stage. Without a task
+            # id or lock there is nothing left to poll, so expose a retryable
+            # error instead of trapping the Studio in a permanent spinner.
+            session = SessionService.get_session(request.session_id)
+            session_state = session.get("state", {})
+            if session_state.get("stage") == "audio_generation":
+                message = (
+                    "Audio generation stopped before the TTS provider returned audio. "
+                    "Please type 'retry audio' to generate it again."
+                )
+                session_state.pop("active_task_id", None)
+                session_state["stage"] = "audio"
+                session_state["is_processing"] = False
+                session_state["audio_error"] = message
+                session_state["show_audio_for_confirmation"] = False
+                SessionService.save_session(request.session_id, session_state)
+                return {
+                    "session_id": request.session_id,
+                    "response": message,
+                    "stage": "audio",
+                    "session_state": json.dumps(session_state),
+                    "is_processing": False,
+                    "process_type": None,
+                    "task_id": None,
+                    "browser_recording_path": browser_recording_path,
+                }
             return await self.get_session_state(request.session_id)
         except Exception as e:
             return JSONResponse(
