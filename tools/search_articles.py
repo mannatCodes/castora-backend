@@ -6,6 +6,7 @@ from agno.agent import Agent
 from db.config import get_tracking_db_path
 import json
 import requests
+from utils.google_news_rss import search_google_news_rss
 
 
 STOP_WORDS = {
@@ -195,8 +196,8 @@ def search_live_news_sources(topic: str, limit: int) -> List[dict]:
         )
         live_results = google_news.get_news(topic)
     except Exception as e:
-        print(f"Live Google News search failed for {topic!r}: {e}")
-        return []
+        print(f"GNews wrapper failed for {topic!r}: {e}; trying Google News RSS.")
+        return search_google_news_rss(topic, limit)
 
     results = []
     seen_urls = set()
@@ -220,4 +221,4 @@ def search_live_news_sources(topic: str, limit: int) -> List[dict]:
                 "full_text": description,
             }
         )
-    return results
+    return results or search_google_news_rss(topic, limit)

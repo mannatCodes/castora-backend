@@ -390,7 +390,9 @@ def _configured_tts_engines(preferred_engine: str) -> List[str]:
     # ``tts_engine=kokoro`` can appear to process forever while the web worker
     # is downloading/model-loading.
     allow_kokoro = os.environ.get("PODCAST_STUDIO_ENABLE_KOKORO", "0").strip().lower() in {"1", "true", "yes", "on"}
-    fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "0").strip().lower() in {"1", "true", "yes", "on"}
+    # A paid provider can be temporarily unavailable or out of credits. Use
+    # the available Edge provider automatically unless explicitly disabled.
+    fallback_enabled = os.environ.get("PODCAST_STUDIO_TTS_FALLBACKS", "1").strip().lower() in {"1", "true", "yes", "on"}
     prefer_hosted = os.environ.get("PODCAST_STUDIO_PREFER_HOSTED_TTS", "1").strip().lower() not in {"0", "false", "no", "off"}
     # Edge is a free, network-hosted speech service and is the dependable
     # production default when a paid provider has no remaining credits. This
@@ -464,8 +466,12 @@ def audio_generate_agent_run(agent: Agent) -> str:
     def fail_audio_generation(message: str) -> str:
         """Do not present stale or placeholder audio as a generated podcast."""
         session_state.pop("audio_url", None)
+        session_state.pop("pending_audio_url", None)
+        session_state.pop("active_task_id", None)
         session_state["show_audio_for_confirmation"] = False
         session_state["audio_error"] = message
+        session_state["stage"] = "audio"
+        session_state["is_processing"] = False
         SessionService.save_session(session_id, session_state)
         print(message)
         return message
@@ -483,7 +489,6 @@ def audio_generate_agent_run(agent: Agent) -> str:
         podcast_title = script_data.get("title", "Your Podcast")
     else:
         podcast_title = "Your Podcast"
-    session_state["stage"] = "audio"
     session_state.pop("tts_errors", None)
     audio_dir = PODCAST_AUDIO_FOLDER
     audio_filename = f"podcast_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
@@ -499,6 +504,13 @@ def audio_generate_agent_run(agent: Agent) -> str:
             language_code = selected_language.get("code", "en")
             language_name = selected_language.get("name", "English")
             tts_engine = session_state.get("tts_engine", "edge")
+            # Persist the output name before starting network TTS. This lets
+            # the status endpoint recover a completed WAV after a restart.
+            session_state["stage"] = "audio_generation"
+            session_state["pending_audio_url"] = audio_filename
+            session_state["show_audio_for_confirmation"] = False
+            session_state.pop("audio_error", None)
+            SessionService.save_session(session_id, session_state)
             print(f"Generating podcast audio using {tts_engine} TTS engine in {language_name} language")
             full_audio_path = None
             use_real_tts = _should_use_real_tts()
@@ -558,6 +570,7 @@ def audio_generate_agent_run(agent: Agent) -> str:
             actual_engine = session_state.get("tts_engine", tts_engine)
             session_state["audio_url"] = audio_url
             session_state["show_audio_for_confirmation"] = True
+            session_state.pop("pending_audio_url", None)
             session_state.pop("audio_error", None)
             session_state["stage"] = "audio"
             SessionService.save_session(session_id, session_state)

@@ -35,6 +35,7 @@ import requests
 from copy import deepcopy
 from types import SimpleNamespace
 from db.config import get_tracking_db_path
+from utils.google_news_rss import search_google_news_rss
 
 load_dotenv()
 
@@ -459,8 +460,11 @@ def _search_live_news_sources(topic: str, limit: int = 8) -> list[dict]:
         )
         live_results = google_news.get_news(topic)
     except Exception as e:
-        print(f"Live Google News search failed for {topic!r}: {e}")
-        return []
+        # ``gnews`` is optional. Its HTTP-client compatibility has varied
+        # across versions, so use the public Google News RSS endpoint rather
+        # than skipping live news entirely when the wrapper breaks.
+        print(f"GNews wrapper failed for {topic!r}: {e}; trying Google News RSS.")
+        return _filter_relevant_sources(topic, search_google_news_rss(topic, limit))
 
     results = []
     seen_urls = set()
@@ -484,7 +488,9 @@ def _search_live_news_sources(topic: str, limit: int = 8) -> list[dict]:
                 "full_text": description,
             }
         )
-    return _filter_relevant_sources(topic, results)
+    return _filter_relevant_sources(topic, results) or _filter_relevant_sources(
+        topic, search_google_news_rss(topic, limit)
+    )
 
 
 def _prepare_sources_without_ai(session_id: str, topic: str) -> dict:
